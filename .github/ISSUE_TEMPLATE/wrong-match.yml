@@ -1,0 +1,39 @@
+name: Wrong match
+description: shoo flagged (or cleaned) something it shouldn't have
+labels: ["rules", "false positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks, these reports are how the rules get safer. **Redact anything private** (tokens,
+        hostnames, personal paths) from command lines before posting.
+  - type: textarea
+    id: output
+    attributes:
+      label: What shoo showed
+      description: The relevant rows from `shoo scan --why` (or `shoo log` if it was already cleaned).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What the process actually was
+      description: What started it, and why it was still in use or shouldn't be touched.
+    validations:
+      required: true
+  - type: dropdown
+    id: cleaned
+    attributes:
+      label: Did shoo actually terminate it?
+      options:
+        - "No, it only showed up in scan"
+        - "Yes, interactively (I confirmed at the prompt)"
+        - "Yes, unattended (--yes or the timer)"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: shoo version and distro
+      placeholder: "shoo 0.1.0, Ubuntu 26.04"

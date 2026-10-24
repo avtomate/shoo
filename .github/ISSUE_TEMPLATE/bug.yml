@@ -1,0 +1,24 @@
+name: Bug
+description: Something else isn't working (crash, wrong output, timer problems)
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Error messages or output, with anything private redacted.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: shoo version, Python version and distro
+      placeholder: "shoo 0.1.0, Python 3.12, Ubuntu 26.04"
+    validations:
+      required: true
