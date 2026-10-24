@@ -31,6 +31,7 @@ class Proc:
     cmdline: str
     cgroup: str
     age_s: float
+    child_ticks: int = 0  # cutime + cstime: CPU of children this process has already collected
 
 
 def parse_stat(text: str) -> dict:
@@ -46,6 +47,7 @@ def parse_stat(text: str) -> dict:
         "session": int(rest[3]),
         "tty_nr": int(rest[4]),
         "cpu_ticks": int(rest[11]) + int(rest[12]),
+        "child_ticks": int(rest[13]) + int(rest[14]),
         "starttime": int(rest[19]),
     }
 
@@ -82,6 +84,7 @@ def read_proc(pid: int, uptime: float | None = None) -> Proc | None:
         tty_nr=stat["tty_nr"],
         starttime=stat["starttime"],
         cpu_ticks=stat["cpu_ticks"],
+        child_ticks=stat["child_ticks"],
         rss_kb=rss_pages * PAGE_KB,
         comm=stat["comm"],
         cmdline=cmdline,
@@ -113,30 +116,17 @@ def tty_state(tty_nr: int) -> str:
     return "alive"
 
 
-def listening_ports(pid: int) -> tuple[int, ...]:
-    """TCP ports this process is listening on (empty if unknown or unreadable)."""
-    inodes = set()
-    try:
-        for fd in os.scandir(PROC / str(pid) / "fd"):
-            try:
-                link = os.readlink(fd.path)
-            except OSError:
-                continue
-            if link.startswith("socket:["):
-                inodes.add(link[8:-1])
-    except OSError:
-        return ()
-    if not inodes:
-        return ()
+def pss_kb(pid: int) -> int | None:
+    """Proportional memory: shared pages are split between the processes sharing them.
 
-    ports = set()
-    for table in ("tcp", "tcp6"):
-        try:
-            lines = (PROC / "net" / table).read_text().splitlines()[1:]
-        except OSError:
-            continue
-        for line in lines:
-            f = line.split()
-            if len(f) > 9 and f[3] == "0A" and f[9] in inodes:
-                ports.add(int(f[1].rsplit(":", 1)[1], 16))
-    return tuple(sorted(ports))
+    RSS counts shared memory once per process, so summing RSS over a dozen Chrome processes
+    can double the real figure. PSS sums honestly.
+    """
+    try:
+        with open(PROC / str(pid) / "smaps_rollup") as f:
+            for line in f:
+                if line.startswith("Pss:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None

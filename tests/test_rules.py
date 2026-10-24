@@ -2,7 +2,7 @@ import re
 import unittest
 
 from helpers import ME, make_proc, table
-from shoo.rules import Policy, classify, match_rule
+from shoo.rules import Policy, classify, explain, match_rule
 
 POLICY = Policy(min_age_s=3600, uid=ME)
 OWN = 999_999  # a pid that isn't in any test table
@@ -40,6 +40,14 @@ class RuleMatching(unittest.TestCase):
                     "python3 train.py --epochs 50", "bash", "mcpelauncher"]:
             with self.subTest(cmd=cmd):
                 self.assertIsNone(match_rule(make_proc(10, cmd)))
+
+    def test_claude_code_background_task_matches_but_other_shells_do_not(self):
+        task = ("/bin/bash -c source /home/u/.claude/shell-snapshots/snapshot-bash-17925-jb42d4.sh "
+                "2>/dev/null || true && eval 'until [ -f done ]; do sleep 5; done'")
+        self.assertEqual(match_rule(make_proc(10, task, comm="bash")).name, "agent-task")
+        for cmd in ["/bin/bash -c ./backup.sh", "bash", "/bin/sh -c cat snapshot-notes.sh"]:
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(match_rule(make_proc(10, cmd, comm=cmd.split()[0].rsplit("/")[-1])))
 
     def test_words_in_paths_and_flags_do_not_count(self):
         # Regression: a bash wrapper whose `cd` target was a project directory named *-mcp was
@@ -135,6 +143,28 @@ class Classification(unittest.TestCase):
     def test_largest_candidates_come_first(self):
         procs = table(make_proc(100, "vite", rss_kb=10), make_proc(200, "vite", rss_kb=999))
         self.assertEqual([f.proc.pid for f in classify(procs, POLICY, OWN)], [200, 100])
+
+
+class Explain(unittest.TestCase):
+    def test_reasons(self):
+        procs = table(
+            make_proc(50, "supervisor-app", ppid=1),
+            make_proc(100, "vite", ppid=50),                       # live parent
+            make_proc(200, "vite", age_s=60),                      # too young
+            make_proc(300, "python3 my_job.py"),                   # orphan, no rule
+            make_proc(400, "vite", cgroup="/system.slice/x.service"),  # protected
+            make_proc(500, "vite"),                                # a candidate
+            make_proc(600, "vite", uid=ME + 1),                    # someone else's: not listed
+        )
+        found = {f.proc.pid for f in classify(procs, POLICY, OWN)}
+        why = dict((p.pid, r) for p, r in explain(procs, POLICY, found, OWN))
+        self.assertIn("parent (supervisor-app 50) is alive", why[100])
+        self.assertIn("too young", why[200])
+        self.assertEqual(why[300], "orphaned, but no rule matches")
+        self.assertTrue(why[400].startswith("protected"))
+        self.assertNotIn(500, why)
+        self.assertNotIn(600, why)
+        self.assertEqual(why[50], "orphaned, but no rule matches")
 
 
 if __name__ == "__main__":

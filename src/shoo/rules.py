@@ -6,16 +6,18 @@ A process is only ever a candidate if ALL of these hold:
   3. it has been running at least `min_age_s`,
   4. it is yours, and not a managed service, container, or protected program.
 
-Children of a candidate are swept up with it.
+Children of a candidate are swept up with it. Whether a candidate is actually *cleaned* also
+depends on activity (CPU between runs, live connections); see scan.py.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from .procs import Proc, tty_state
+from .util import fmt_age
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ class Rule:
     full: bool = False  # ...unless the signature can sit anywhere in the command line
     skip_flags: bool = False  # ignore -x/--flag tokens when picking the head
     also: re.Pattern | None = None  # extra pattern that must match somewhere in the full command
+    shells: bool = False  # the only kind of rule allowed to match a shell
 
 
 def _rule(name: str, regex: str, description: str, *, also: str | None = None, **kw) -> Rule:
@@ -92,6 +95,13 @@ RULES: tuple[Rule, ...] = (
         head_tokens=1,
     ),
     _rule(
+        "agent-task",
+        r"/shell-snapshots/snapshot-[\w.-]+\.sh\b",
+        "Background shell tasks from a finished Claude Code session",
+        full=True,
+        shells=True,
+    ),
+    _rule(
         "watcher",
         r"^(?:tail\s+-[fF]|inotifywait|fswatch)\b",
         "Log tails and file watchers",
@@ -99,7 +109,8 @@ RULES: tuple[Rule, ...] = (
     ),
 )
 
-# Wrappers are never a match themselves: their command line mentions whatever they run.
+# Shells are only matched by `shells=True` rules: a wrapper's command line mentions whatever it
+# runs, so ordinary rules would misfire on it.
 SHELLS = frozenset({"bash", "sh", "dash", "zsh", "fish"})
 
 # Programs we refuse to touch even if a rule somehow matches them or their parent.
@@ -122,8 +133,19 @@ class Finding:
     rule: str  # rule name, or "child"
     reasons: tuple[str, ...]
     root_pid: int | None = None  # for children: the candidate they were swept up with
-    cpu_pct: float | None = None
+    cpu_pct: float | None = None  # over the --sample window
     ports: tuple[int, ...] = ()
+    pss_kb: int | None = None
+    idle_s: float | None = None  # roots only: how long the whole tree has been idle (None = unknown)
+    connections: int = 0  # roots only: live connections from outside the tree
+
+    @property
+    def root(self) -> int:
+        return self.root_pid if self.root_pid is not None else self.proc.pid
+
+    @property
+    def mem_kb(self) -> int:
+        return self.pss_kb if self.pss_kb is not None else self.proc.rss_kb
 
 
 def _head(cmdline: str, n: int, skip_flags: bool = False) -> str:
@@ -156,9 +178,10 @@ def is_shell(proc: Proc) -> bool:
 
 
 def match_rule(proc: Proc) -> Rule | None:
-    if is_shell(proc):
-        return None
+    shell = is_shell(proc)
     for rule in RULES:
+        if shell and not rule.shells:
+            continue
         text = proc.cmdline if rule.full else _head(proc.cmdline, rule.head_tokens, rule.skip_flags)
         if rule.pattern.search(text) and (rule.also is None or rule.also.search(proc.cmdline)):
             return rule
@@ -255,5 +278,30 @@ def classify(procs: dict[int, Proc], policy: Policy, own_pid: int | None = None)
     return out
 
 
-def with_metrics(f: Finding, cpu_pct: float | None, ports: tuple[int, ...]) -> Finding:
-    return replace(f, cpu_pct=cpu_pct, ports=ports)
+def explain(
+    procs: dict[int, Proc], policy: Policy, candidates: set[int], own_pid: int | None = None
+) -> list[tuple[Proc, str]]:
+    """For `scan --why`: your processes that are orphaned or match a rule, but weren't picked."""
+    skip = _ancestors(own_pid if own_pid is not None else os.getpid(), procs)
+    out = []
+    for p in sorted(procs.values(), key=lambda p: p.pid):
+        if p.pid in candidates or p.pid in skip or p.uid != policy.uid or p.state == "Z":
+            continue
+        rule, orphan = match_rule(p), orphan_reason(p, procs)
+        if rule is None and orphan is None:
+            continue
+        if reason := protected_reason(p, policy):
+            why = f"protected: {reason}"
+        elif rule is None:
+            why = "orphaned, but no rule matches"
+        elif orphan is None:
+            parent = procs.get(p.ppid)
+            if tty_state(p.tty_nr) == "alive":
+                why = f"matches {rule.name}, but attached to a live terminal"
+            else:
+                owner = f"{parent.comm} {parent.pid}" if parent else str(p.ppid)
+                why = f"matches {rule.name}, but its parent ({owner}) is alive"
+        else:
+            why = f"matches {rule.name}, but too young ({fmt_age(p.age_s)} < {fmt_age(policy.min_age_s)})"
+        out.append((p, why))
+    return out

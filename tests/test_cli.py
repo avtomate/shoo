@@ -6,7 +6,8 @@ from shoo import cli
 
 class DefaultCommand(unittest.TestCase):
     def run_main(self, argv):
-        with mock.patch.object(cli, "cmd_scan", return_value=0) as scan:
+        scan = mock.Mock(return_value=0)
+        with mock.patch.dict(cli.HANDLERS, {"scan": scan}):
             self.assertEqual(cli.main(argv), 0)
         return scan
 

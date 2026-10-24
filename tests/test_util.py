@@ -47,11 +47,13 @@ class ProcStat(unittest.TestCase):
         fields = ["0"] * 22
         fields[0], fields[1], fields[4] = "S", "42", "34816"
         fields[11], fields[12], fields[19] = "5", "6", "9999"
+        fields[13], fields[14] = "30", "4"  # cutime, cstime
         line = "123 (my (weird) app) " + " ".join(fields)
         got = parse_stat(line)
         self.assertEqual(got["comm"], "my (weird) app")
         self.assertEqual((got["state"], got["ppid"], got["tty_nr"]), ("S", 42, 34816))
         self.assertEqual(got["cpu_ticks"], 11)
+        self.assertEqual(got["child_ticks"], 34)
         self.assertEqual(got["starttime"], 9999)
 
 
