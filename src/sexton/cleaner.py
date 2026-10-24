@@ -29,7 +29,7 @@ def _send(proc: Proc, sig: int) -> str | None:
     return None
 
 
-def reap(
+def clean(
     findings: list[Finding], grace: float = 5.0, poll: float = 0.1
 ) -> dict[int, str]:
     """SIGTERM everything, wait up to `grace` seconds, SIGKILL what remains.

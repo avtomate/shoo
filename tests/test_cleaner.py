@@ -4,7 +4,7 @@ import sys
 import unittest
 
 from sexton.procs import read_proc
-from sexton.reaper import reap, still_same
+from sexton.cleaner import clean, still_same
 from sexton.rules import Finding
 
 
@@ -21,7 +21,7 @@ class RealProcesses(unittest.TestCase):
     def test_polite_process_is_terminated(self):
         child, proc = spawn()
         try:
-            self.assertEqual(reap([finding(proc)], grace=3), {child.pid: "terminated"})
+            self.assertEqual(clean([finding(proc)], grace=3), {child.pid: "terminated"})
             child.wait(timeout=5)  # collect it so it isn't left as a zombie
         finally:
             child.kill()
@@ -35,7 +35,7 @@ class RealProcesses(unittest.TestCase):
                 if read_proc(child.pid).cmdline.endswith(code):
                     break
             import time; time.sleep(0.5)
-            self.assertEqual(reap([finding(proc)], grace=0.5), {child.pid: "killed"})
+            self.assertEqual(clean([finding(proc)], grace=0.5), {child.pid: "killed"})
             child.wait(timeout=5)
         finally:
             child.kill()
@@ -45,7 +45,7 @@ class RealProcesses(unittest.TestCase):
         try:
             stale = dataclasses.replace(proc, starttime=proc.starttime + 1)
             self.assertFalse(still_same(stale))
-            self.assertEqual(reap([finding(stale)], grace=0.2), {child.pid: "gone"})
+            self.assertEqual(clean([finding(stale)], grace=0.2), {child.pid: "gone"})
             self.assertIsNone(child.poll())  # still running: we never signalled it
         finally:
             child.kill()

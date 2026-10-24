@@ -1,4 +1,4 @@
-"""Command line interface: `sexton scan` (default, read-only) and `sexton reap`."""
+"""Command line interface: `sexton scan` (default, read-only), `clean`, and `schedule`."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, config
+from . import __version__, config, schedule
+from .cleaner import clean
 from .procs import CLK_TCK, listening_ports, read_proc, snapshot
-from .reaper import reap
 from .rules import RULES, Finding, Policy, classify, with_metrics
 from .util import fmt_age, fmt_kb, parse_duration, redact, truncate
 
@@ -35,10 +35,19 @@ def build_parser() -> argparse.ArgumentParser:
     scan = sub.add_parser("scan", parents=[common], help="list reclaimable processes (changes nothing)")
     scan.add_argument("--json", action="store_true", help="machine-readable output")
 
-    rp = sub.add_parser("reap", parents=[common], help="terminate reclaimable processes")
-    rp.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    rp.add_argument("--grace", type=float, default=5.0, metavar="SECS",
+    cp = sub.add_parser("clean", parents=[common], help="terminate reclaimable processes")
+    cp.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
+    cp.add_argument("--grace", type=float, default=5.0, metavar="SECS",
                     help="seconds between SIGTERM and SIGKILL; default 5")
+
+    sp = sub.add_parser("schedule", help="run `clean` automatically (systemd user timer)")
+    actions = sp.add_subparsers(dest="action", required=True)
+    en = actions.add_parser("enable", help="turn on automatic cleaning")
+    en.add_argument("--every", default=schedule.DEFAULT_EVERY, help="how often to run; default 1h")
+    en.add_argument("--min-age", default=schedule.DEFAULT_MIN_AGE,
+                    help="only clean processes older than this; default 6h")
+    actions.add_parser("disable", help="turn off automatic cleaning")
+    actions.add_parser("status", help="show the next run and recent activity")
 
     sub.add_parser("rules", help="show what sexton looks for")
     return p
@@ -92,7 +101,7 @@ def _print_table(findings: list[Finding], zombies: list, hint: bool = True) -> N
             print(f"{p.pid:>7} {fmt_age(p.age_s):>6} {fmt_kb(p.rss_kb):>6} {cpu:>5}  {f.rule:<16} {ports:<10} {cmd}")
         total = sum(f.proc.rss_kb for f in findings)
         print(f"\n{len(findings)} processes, about {fmt_kb(total)} reclaimable."
-              + (" Run `sexton reap` to clean them up." if hint else ""))
+              + (" Run `sexton clean` to clean them up." if hint else ""))
     if zombies:
         print(f"\nNote: {len(zombies)} zombie process(es) exist. Zombies are already dead and use no "
               "memory; they vanish when their parent exits or collects them. Nothing to kill.")
@@ -116,7 +125,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_reap(args: argparse.Namespace) -> int:
+def cmd_clean(args: argparse.Namespace) -> int:
     findings, zombies = _find(args)
     _print_table(findings, zombies, hint=False)
     if not findings:
@@ -128,10 +137,16 @@ def cmd_reap(args: argparse.Namespace) -> int:
         if input(f"\nTerminate these {len(findings)} processes? [y/N] ").strip().lower() != "y":
             print("Aborted.")
             return 1
-    results = reap(findings, grace=args.grace)
+    results = clean(findings, grace=args.grace)
     for pid, outcome in results.items():
         print(f"{pid:>7}  {outcome}")
     return 0 if "denied" not in results.values() else 1
+
+
+def cmd_schedule(args: argparse.Namespace) -> int:
+    if args.action == "enable":
+        return schedule.enable(args.every, args.min_age)
+    return schedule.disable() if args.action == "disable" else schedule.status()
 
 
 def cmd_rules(_: argparse.Namespace) -> int:
@@ -145,7 +160,7 @@ def cmd_rules(_: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     args = build_parser().parse_args(argv or ["scan"])
-    handlers = {"scan": cmd_scan, "reap": cmd_reap, "rules": cmd_rules}
+    handlers = {"scan": cmd_scan, "clean": cmd_clean, "schedule": cmd_schedule, "rules": cmd_rules}
     try:
         return handlers[args.command](args)
     except (ValueError, re.error) as e:

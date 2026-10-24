@@ -17,7 +17,7 @@ $ sexton
  388120  1d9h   430M     0  headless-browser -          chromium --headless=new --remote-debugging-port=9222
  301554  6d2h   171M     0  mcp-server       -          npx -y @modelcontextprotocol/server-filesystem /srv
 
-4 processes, about 1.3G reclaimable. Run `sexton reap` to clean them up.
+4 processes, about 1.3G reclaimable. Run `sexton clean` to clean them up.
 ```
 
 ## "Zombie" processes vs. what you actually have
@@ -37,7 +37,7 @@ Requires Linux and Python 3.11+. No dependencies.
 git clone <this repo> && cd sexton
 python3 -m pip install .        # or: pipx install .
 sexton                          # same as `sexton scan`; read-only
-sexton reap                     # asks first
+sexton clean                    # asks first
 ```
 
 Or without installing: `PYTHONPATH=src python3 -m sexton`.
@@ -47,11 +47,26 @@ Or without installing: `PYTHONPATH=src python3 -m sexton`.
 | Command | What it does |
 | --- | --- |
 | `sexton` / `sexton scan` | List reclaimable processes. Changes nothing. `--json` for scripts. |
-| `sexton reap` | Show the list, ask for confirmation, then SIGTERM, wait, SIGKILL stragglers. `-y` skips the prompt; `--grace SECS` sets the wait. |
+| `sexton clean` | Show the list, ask for confirmation, then SIGTERM, wait, SIGKILL stragglers. `-y` skips the prompt; `--grace SECS` sets the wait. |
+| `sexton schedule enable` | Clean automatically in the background (see below). Also `disable` and `status`. |
 | `sexton rules` | Print what it looks for. |
 
-Options for `scan` and `reap`: `--min-age 2h` (default `1h`), `--protect REGEX` (repeatable),
+Options for `scan` and `clean`: `--min-age 2h` (default `1h`), `--protect REGEX` (repeatable),
 `--sample SECS` (CPU measurement window, `0` to skip), `--config PATH`.
+
+## Run it automatically
+
+```bash
+sexton schedule enable                           # hourly, only processes older than 6h
+sexton schedule enable --every 30m --min-age 12h
+sexton schedule status                           # next run + what it did
+sexton schedule disable
+```
+
+This installs a systemd *user* timer (no root, nothing system-wide). The unattended default
+`--min-age` is 6h, more cautious than the interactive 1h, since nobody is watching. Every run is
+logged: `journalctl --user -u sexton.service`. On a server, make sure lingering is on
+(`loginctl enable-linger`) or the timer stops when you log out; `schedule enable` warns if it's off.
 
 ## When is a process a candidate?
 
@@ -80,7 +95,7 @@ protect = ["my-staging-app", "--port 8080"]   # regexes against the command line
 
 ## Safety and privacy
 
-- **Dry run by default.** `scan` is read-only; `reap` asks for confirmation, and refuses to run
+- **Dry run by default.** `scan` is read-only; `clean` asks for confirmation, and refuses to run
   without a terminal unless you pass `--yes`.
 - **No PID-reuse accidents.** Before every signal it re-checks the process's start time, so a recycled
   PID is never hit.
@@ -101,7 +116,7 @@ PYTHONPATH=src:tests python3 -m unittest discover -s tests
 
 ## Status
 
-Early (0.1). Linux only. Ideas: a `watch` mode / systemd timer, per-agent profiles, a memory-pressure
+Early (0.1). Linux only. Ideas: per-agent profiles, a memory-pressure
 trigger, macOS support.
 
 ## License
