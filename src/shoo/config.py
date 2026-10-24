@@ -1,4 +1,4 @@
-"""Optional config at $XDG_CONFIG_HOME/sexton/config.toml (default ~/.config/sexton/config.toml).
+"""Optional config at $XDG_CONFIG_HOME/shoo/config.toml (default ~/.config/shoo/config.toml).
 
     min_age = "2h"                    # default: 1h
     protect = ["my-important-app", "port 8080"]   # regexes matched against the command line
@@ -23,7 +23,7 @@ class Config:
 
 def default_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
-    return Path(base) / "sexton" / "config.toml"
+    return Path(base) / "shoo" / "config.toml"
 
 
 def load(path: Path | None = None) -> Config:

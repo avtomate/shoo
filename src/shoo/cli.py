@@ -1,4 +1,4 @@
-"""Command line interface: `sexton scan` (default, read-only), `clean`, and `schedule`."""
+"""Command line interface: `shoo scan` (default, read-only), `clean`, and `schedule`."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="seconds to measure CPU use over (0 to skip); default 2")
     common.add_argument("--config", type=Path, help="path to a config.toml")
 
-    p = argparse.ArgumentParser(prog="sexton", description=__doc__)
-    p.add_argument("--version", action="version", version=f"sexton {__version__}")
+    p = argparse.ArgumentParser(prog="shoo", description=__doc__)
+    p.add_argument("--version", action="version", version=f"shoo {__version__}")
     sub = p.add_subparsers(dest="command")
 
     scan = sub.add_parser("scan", parents=[common], help="list reclaimable processes (changes nothing)")
@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_parser("disable", help="turn off automatic cleaning")
     actions.add_parser("status", help="show the next run and recent activity")
 
-    sub.add_parser("rules", help="show what sexton looks for")
+    sub.add_parser("rules", help="show what shoo looks for")
     return p
 
 
@@ -101,7 +101,7 @@ def _print_table(findings: list[Finding], zombies: list, hint: bool = True) -> N
             print(f"{p.pid:>7} {fmt_age(p.age_s):>6} {fmt_kb(p.rss_kb):>6} {cpu:>5}  {f.rule:<16} {ports:<10} {cmd}")
         total = sum(f.proc.rss_kb for f in findings)
         print(f"\n{len(findings)} processes, about {fmt_kb(total)} reclaimable."
-              + (" Run `sexton clean` to clean them up." if hint else ""))
+              + (" Run `shoo clean` to clean them up." if hint else ""))
     if zombies:
         print(f"\nNote: {len(zombies)} zombie process(es) exist. Zombies are already dead and use no "
               "memory; they vanish when their parent exits or collects them. Nothing to kill.")
@@ -159,10 +159,13 @@ def cmd_rules(_: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    args = build_parser().parse_args(argv or ["scan"])
     handlers = {"scan": cmd_scan, "clean": cmd_clean, "schedule": cmd_schedule, "rules": cmd_rules}
+    # No command means scan, including `shoo --min-age 2h`.
+    if not argv or (argv[0] not in handlers and argv[0] not in ("-h", "--help", "--version")):
+        argv = ["scan", *argv]
+    args = build_parser().parse_args(argv)
     try:
         return handlers[args.command](args)
     except (ValueError, re.error) as e:
-        print(f"sexton: {e}", file=sys.stderr)
+        print(f"shoo: {e}", file=sys.stderr)
         return 2

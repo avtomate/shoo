@@ -1,7 +1,7 @@
 """Read process facts straight from /proc.
 
 Deliberately never opens /proc/<pid>/environ: environment variables are where
-secrets live, and nothing sexton does needs them.
+secrets live, and nothing shoo does needs them.
 """
 
 from __future__ import annotations

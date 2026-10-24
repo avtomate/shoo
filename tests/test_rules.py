@@ -2,7 +2,7 @@ import re
 import unittest
 
 from helpers import ME, make_proc, table
-from sexton.rules import Policy, classify, match_rule
+from shoo.rules import Policy, classify, match_rule
 
 POLICY = Policy(min_age_s=3600, uid=ME)
 OWN = 999_999  # a pid that isn't in any test table
@@ -113,7 +113,7 @@ class Classification(unittest.TestCase):
         self.assertEqual(classify(procs, policy, OWN), [])
 
     def test_never_targets_itself_or_its_ancestors(self):
-        procs = table(make_proc(100, "vite", ppid=1), make_proc(200, "npx sexton", ppid=100))
+        procs = table(make_proc(100, "vite", ppid=1), make_proc(200, "npx shoo", ppid=100))
         self.assertEqual(classify(procs, POLICY, own_pid=200), [])
 
     def test_zombies_are_ignored(self):

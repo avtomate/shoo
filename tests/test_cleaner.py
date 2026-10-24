@@ -3,9 +3,9 @@ import subprocess
 import sys
 import unittest
 
-from sexton.procs import read_proc
-from sexton.cleaner import clean, still_same
-from sexton.rules import Finding
+from shoo.procs import read_proc
+from shoo.cleaner import clean, still_same
+from shoo.rules import Finding
 
 
 def spawn(code="import time; time.sleep(60)"):

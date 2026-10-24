@@ -1,7 +1,7 @@
 import unittest
 
-from sexton.procs import parse_stat
-from sexton.util import fmt_age, fmt_kb, parse_duration, redact
+from shoo.procs import parse_stat
+from shoo.util import fmt_age, fmt_kb, parse_duration, redact
 
 
 class Durations(unittest.TestCase):

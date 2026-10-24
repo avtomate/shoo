@@ -1,4 +1,4 @@
-from sexton.procs import Proc
+from shoo.procs import Proc
 
 ME = 1000
 

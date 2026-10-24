@@ -1,9 +1,9 @@
-"""Run `sexton clean` automatically with a systemd user timer.
+"""Run `shoo clean` automatically with a systemd user timer.
 
 Everything lives in the user's own systemd (no root, nothing system-wide):
-    ~/.config/systemd/user/sexton.service   what to run
-    ~/.config/systemd/user/sexton.timer     when to run it
-Output goes to the journal: `journalctl --user -u sexton.service`.
+    ~/.config/systemd/user/shoo.service   what to run
+    ~/.config/systemd/user/shoo.timer     when to run it
+Output goes to the journal: `journalctl --user -u shoo.service`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .util import parse_duration
 
-NAME = "sexton"
+NAME = "shoo"
 DEFAULT_EVERY = "1h"
 DEFAULT_MIN_AGE = "6h"  # more conservative than the interactive default: nobody is watching
 MIN_EVERY_S = 300
@@ -33,17 +33,17 @@ def _quote(path: str) -> str:
 def render(every_s: int, min_age_s: int, python: str, pythonpath: str) -> tuple[str, str]:
     """Return (service_unit, timer_unit) text."""
     service = f"""[Unit]
-Description=sexton: clean up orphaned agent and dev-tool processes
+Description=shoo: clean up orphaned agent and dev-tool processes
 
 [Service]
 Type=oneshot
 Environment=PYTHONPATH={_quote(pythonpath)}
-ExecStart={_quote(python)} -m sexton clean --yes --sample 0 --min-age {min_age_s}
+ExecStart={_quote(python)} -m shoo clean --yes --sample 0 --min-age {min_age_s}
 Nice=19
 IOSchedulingClass=idle
 """
     timer = f"""[Unit]
-Description=Run sexton regularly
+Description=Run shoo regularly
 
 [Timer]
 OnBootSec=10min
@@ -89,9 +89,9 @@ def enable(every: str = DEFAULT_EVERY, min_age: str = DEFAULT_MIN_AGE) -> int:
             print(f"systemctl --user {' '.join(step)} failed:\n{r.stderr.strip()}", file=sys.stderr)
             return 1
 
-    print(f"Enabled: sexton will clean every {every}, touching only processes older than {min_age}.")
+    print(f"Enabled: shoo will clean every {every}, touching only processes older than {min_age}.")
     print(f"  see what it did:  journalctl --user -u {NAME}.service")
-    print("  turn it off:      sexton schedule disable")
+    print("  turn it off:      shoo schedule disable")
     if _linger_enabled() is False:
         print("\nWarning: lingering is off, so the timer stops when you log out. Fix with:\n"
               "  loginctl enable-linger")
@@ -103,14 +103,14 @@ def disable() -> int:
     for suffix in ("service", "timer"):
         (unit_dir() / f"{NAME}.{suffix}").unlink(missing_ok=True)
     _systemctl("daemon-reload")
-    print("Disabled and removed the sexton timer.")
+    print("Disabled and removed the shoo timer.")
     return 0
 
 
 def status() -> int:
     timer = unit_dir() / f"{NAME}.timer"
     if not timer.exists():
-        print("Not scheduled. Turn it on with: sexton schedule enable")
+        print("Not scheduled. Turn it on with: shoo schedule enable")
         return 0
     print(_systemctl("list-timers", f"{NAME}.timer", "--no-pager").stdout.strip())
     print("\nRecent runs:")

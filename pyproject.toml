@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sexton"
+name = "shoo"
 version = "0.1.0"
 description = "Find and clean up orphaned agent and dev-tool processes that are quietly eating your RAM."
 readme = "README.md"
@@ -17,7 +17,7 @@ classifiers = [
 ]
 
 [project.scripts]
-sexton = "sexton.cli:main"
+shoo = "shoo.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
