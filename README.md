@@ -155,12 +155,11 @@ rm -rf ~/.local/state/shoo ~/.config/shoo
 
 ## Contributing
 
-Bug reports and new rules are welcome. Rules live in `src/shoo/rules.py`; each needs a test in
-`tests/test_rules.py` for what it should match *and* a lookalike it must not. Run the tests with:
-
-```bash
-PYTHONPATH=src:tests python3 -m unittest discover -s tests
-```
+Reports of what shoo gets wrong on real machines are the most useful contribution: something it
+flagged that it shouldn't have, or a leftover it missed. There are issue templates for both. To
+add a rule or send a fix, see [CONTRIBUTING.md](CONTRIBUTING.md); changes are tracked in
+[CHANGELOG.md](CHANGELOG.md). Please report security problems privately, as described in
+[SECURITY.md](SECURITY.md). This project follows a [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
