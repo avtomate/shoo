@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Local config / secrets — never commit
+.env
+.env.*
+*.pem
+*.key
+config.local.toml
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
