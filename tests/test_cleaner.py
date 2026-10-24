@@ -3,13 +3,13 @@ import subprocess
 import sys
 import unittest
 
-from shoo.procs import read_proc
 from shoo.cleaner import clean, still_same
+from shoo.procs import read_proc
 from shoo.rules import Finding
 
 
 def spawn(code="import time; time.sleep(60)"):
-    child = subprocess.Popen([sys.executable, "-c", code])
+    child = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
     return child, read_proc(child.pid)
 
 
@@ -25,20 +25,19 @@ class RealProcesses(unittest.TestCase):
             child.wait(timeout=5)  # collect it so it isn't left as a zombie
         finally:
             child.kill()
+            child.wait()
 
     def test_stubborn_process_is_killed_after_grace(self):
-        code = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+        code = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "print('ready', flush=True); time.sleep(60)")
         child, proc = spawn(code)
         try:
-            # give the child a moment to install its handler
-            while True:
-                if read_proc(child.pid).cmdline.endswith(code):
-                    break
-            import time; time.sleep(0.5)
+            self.assertEqual(child.stdout.readline().strip(), "ready")  # SIGTERM is now ignored
             self.assertEqual(clean([finding(proc)], grace=0.5), {child.pid: "killed"})
             child.wait(timeout=5)
         finally:
             child.kill()
+            child.wait()
 
     def test_refuses_to_signal_a_recycled_pid(self):
         child, proc = spawn()

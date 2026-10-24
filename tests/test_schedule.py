@@ -6,7 +6,10 @@ from shoo.schedule import render
 class Units(unittest.TestCase):
     def test_service_runs_clean_unattended_with_a_conservative_age(self):
         service, _ = render(3600, 21600, 7200, "/usr/bin/python3", "/opt/shoo/src")
-        self.assertIn("ExecStart=/usr/bin/python3 -m shoo clean --yes --sample 0 --min-age 21600 --require-idle 7200\n", service)
+        self.assertIn(
+            "ExecStart=/usr/bin/python3 -m shoo clean --yes --sample 0 --min-age 21600 --require-idle 7200\n",
+            service,
+        )
         self.assertIn("Environment=PYTHONPATH=/opt/shoo/src", service)
         self.assertIn("Type=oneshot", service)
         self.assertIn("Nice=19", service)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from helpers import ME, make_proc, table
 from shoo.net import ESTABLISHED, NetView, Sock
+from shoo.procs import CLK_TCK
 from shoo.rules import Policy
 from shoo.scan import run, tree_key
 from shoo.state import IdleTracker
@@ -14,6 +15,13 @@ POLICY = Policy(min_age_s=3600, uid=ME)
 OWN = 999_999
 LO = ipaddress.ip_address("127.0.0.1")
 OUTSIDE = ipaddress.ip_address("203.0.113.9")
+
+
+def remember(path, proc, now, ticks=0):
+    """Record a reading for proc's tree, as an earlier run would have."""
+    tracker = IdleTracker(path, now=now)
+    tracker.observe(tree_key(proc), ticks)
+    tracker.save()
 
 
 def quiet_net(socks=(), inodes=None):
@@ -52,11 +60,11 @@ class Gating(unittest.TestCase):
         first = go(procs, require_idle_s=7200, tracker=IdleTracker(path, now=0))
         self.assertIn("not watched long enough", first.held[100])
 
-        tracker = IdleTracker(path, now=0); tracker.observe(tree_key(proc), 0); tracker.save()
+        remember(path, proc, now=0)
         later = go(procs, require_idle_s=7200, tracker=IdleTracker(path, now=3600))
         self.assertIn("idle 1h0m, needs 2h0m", later.held[100])
 
-        t = IdleTracker(path, now=3600); t.observe(tree_key(proc), 0); t.save()
+        remember(path, proc, now=3600)
         ready = go(procs, require_idle_s=7200, tracker=IdleTracker(path, now=7300))
         self.assertEqual([f.proc.pid for f in ready.actionable], [100])
 
@@ -65,8 +73,8 @@ class Gating(unittest.TestCase):
         # children it has collected (child_ticks) shows it is busy.
         path = Path(tempfile.mkdtemp()) / "idle.json"
         proc = make_proc(100, "vite")
-        t = IdleTracker(path, now=0); t.observe(tree_key(proc), 0); t.save()
-        busy = dataclasses.replace(proc, child_ticks=3600 * 100)  # a whole core for an hour
+        remember(path, proc, now=0)
+        busy = dataclasses.replace(proc, child_ticks=3600 * CLK_TCK)  # a whole core for an hour
         report = go(table(busy), require_idle_s=60, tracker=IdleTracker(path, now=3600))
         self.assertIn("idle 0m", report.held[100])
 
