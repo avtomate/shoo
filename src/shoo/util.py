@@ -57,8 +57,13 @@ _REDACTIONS = (
     (re.compile(r"(?i)\b(bearer)\s+[\w.~+/=-]{16,}"), r"\1 ***"),
     # JWTs, wherever they appear
     (re.compile(r"\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]+"), "***"),
-    # --api-key=abc, --token abc, --password=abc
-    (re.compile(rf"(?i)(--?[\w-]*(?:{_SECRET_WORDS})[\w-]*)([=\s]+)\S+"), r"\1\2***"),
+    # --api-key=abc, --password=abc
+    (re.compile(rf"(?i)(--?[\w-]*(?:{_SECRET_WORDS})[\w-]*)=\S+"), r"\1=***"),
+    # --token abc: only a value that isn't itself a flag, so a boolean like `--no-auth --port 80`
+    # keeps its next argument. A multi-word value can't be told apart from arguments; best effort.
+    (re.compile(rf"(?i)(--?[\w-]*(?:{_SECRET_WORDS})[\w-]*)\s+(?!-)\S+"), r"\1 ***"),
+    # mysql -pSECRET, attached to the flag (-p8080 is a port, so not digits only)
+    (re.compile(r"(?<=\s)(-p)(?!\d+(?:\s|$))\S+"), r"\1***"),
     # API_KEY=abc, GITHUB_TOKEN=abc
     (re.compile(rf"(?i)\b([\w]*(?:{_SECRET_WORDS})[\w]*)=\S+"), r"\1=***"),
     # https://user:pass@host

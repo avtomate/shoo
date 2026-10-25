@@ -47,6 +47,15 @@ class Redaction(unittest.TestCase):
                 for secret in ("eyJ", "dXNlcjpodW50ZXIy", "token-abcdef123456"):
                     self.assertNotIn(secret, out)
 
+    def test_attached_short_options_and_boolean_flags(self):
+        self.assertEqual(redact("mysql -pHunter2 -h db"), "mysql -p*** -h db")
+        self.assertEqual(redact("mysql -psecret -h x"), "mysql -p*** -h x")
+        self.assertEqual(redact("tool --password hunter2 --port 80"), "tool --password *** --port 80")
+        # A boolean flag with a secret-ish name must not swallow the next argument.
+        self.assertEqual(redact("node srv.js --no-auth --port 8080"), "node srv.js --no-auth --port 8080")
+        # -p8080 is a port, not a password.
+        self.assertEqual(redact("ssh host -p22 -p 8080"), "ssh host -p22 -p 8080")
+
     def test_other_credential_headers(self):
         for raw in ['curl -H "x-api-key: abcd1234secretvalue" https://x',
                     "curl -H 'Cookie: session=abcd1234secretvalue' https://x",
