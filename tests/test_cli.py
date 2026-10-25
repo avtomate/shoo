@@ -21,14 +21,29 @@ class DefaultCommand(unittest.TestCase):
         self.assertEqual(scan.call_args.args[0].min_age, "2h")
 
 
+class Prompt(unittest.TestCase):
+    def test_ctrl_d_or_ctrl_c_at_the_prompt_aborts_cleanly(self):
+        report = mock.Mock(actionable=[mock.Mock()], held={}, skipped=[], zombies=[])
+        for error in (EOFError, KeyboardInterrupt):
+            with self.subTest(error=error.__name__), mock.patch.object(cli, "_report", return_value=report), \
+                    mock.patch.object(cli, "_print_report"), mock.patch("sys.stdin.isatty", return_value=True), \
+                    mock.patch("builtins.input", side_effect=error), mock.patch.object(cli, "clean") as kill, \
+                    contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(["clean"]), 1)
+                kill.assert_not_called()
+                self.assertIn("Aborted.", out.getvalue())
+
+
 class Root(unittest.TestCase):
     def test_clean_and_schedule_refuse_root(self):
         for argv in (["clean", "--yes"], ["schedule", "enable"]):
             with self.subTest(argv=argv), mock.patch("os.geteuid", return_value=0), \
-                    mock.patch.object(cli, "_report") as report, mock.patch.object(cli.schedule, "enable") as enable:
+                    mock.patch.object(cli, "_report") as report, mock.patch.object(cli.schedule, "enable") as enable, \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
                 self.assertEqual(cli.main(argv), 2)
                 report.assert_not_called()
                 enable.assert_not_called()
+                self.assertIn("refusing to run as root", err.getvalue())
 
     def test_allow_root_overrides(self):
         empty = mock.Mock(actionable=[], held={}, skipped=[], zombies=[])

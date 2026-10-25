@@ -26,6 +26,7 @@ class RealProcesses(unittest.TestCase):
         finally:
             child.kill()
             child.wait()
+            child.stdout.close()
 
     def test_stubborn_process_is_killed_after_grace(self):
         code = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
@@ -38,6 +39,7 @@ class RealProcesses(unittest.TestCase):
         finally:
             child.kill()
             child.wait()
+            child.stdout.close()
 
     def test_refuses_to_signal_a_recycled_pid(self):
         child, proc = spawn()
@@ -49,6 +51,7 @@ class RealProcesses(unittest.TestCase):
         finally:
             child.kill()
             child.wait()
+            child.stdout.close()
 
 
 if __name__ == "__main__":

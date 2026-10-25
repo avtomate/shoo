@@ -17,11 +17,9 @@ from pathlib import Path
 
 from . import __version__, config, schedule, state
 from .cleaner import clean
-from .rules import RULES, Finding, Policy
+from .rules import DEFAULT_MIN_AGE_S, RULES, Finding, Policy
 from .scan import Report, run
 from .util import fmt_age, fmt_kb, parse_duration, redact, truncate
-
-DEFAULT_MIN_AGE = 3600.0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,7 +78,7 @@ def _policy(args: argparse.Namespace) -> Policy:
     if args.min_age is not None:
         min_age = parse_duration(args.min_age)
     else:
-        min_age = cfg.min_age_s if cfg.min_age_s is not None else DEFAULT_MIN_AGE
+        min_age = cfg.min_age_s if cfg.min_age_s is not None else DEFAULT_MIN_AGE_S
     protect = cfg.protect + tuple(re.compile(r) for r in args.protect)
     return Policy(min_age_s=min_age, protect=protect)
 
@@ -204,7 +202,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
         if not sys.stdin.isatty():
             print("Refusing to kill without a terminal to confirm. Pass --yes to override.", file=sys.stderr)
             return 2
-        if input(f"\nTerminate these {len(targets)} processes? [y/N] ").strip().lower() != "y":
+        try:
+            answer = input(f"\nTerminate these {len(targets)} processes? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+            print()
+        if answer.strip().lower() != "y":
             print("Aborted.")
             return 1
     results = clean(targets, grace=args.grace)
@@ -258,3 +261,6 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, re.error) as e:
         print(f"shoo: {e}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
