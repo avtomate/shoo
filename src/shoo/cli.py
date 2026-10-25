@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -51,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--dry-run", action="store_true", help="record what would be cleaned; kill nothing")
     cp.add_argument("--grace", type=float, default=5.0, metavar="SECS",
                     help="seconds between SIGTERM and SIGKILL; default 5")
+    cp.add_argument("--allow-root", action="store_true", help=argparse.SUPPRESS)
 
     sp = sub.add_parser("schedule", help="clean automatically in the background (systemd user timer)")
     actions = sp.add_subparsers(dest="action", required=True)
@@ -62,6 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="only clean trees idle across runs this long; default 2h")
     en.add_argument("--dry-run", action="store_true",
                     help="watch-only: record what would be cleaned, kill nothing")
+    en.add_argument("--allow-root", action="store_true", help=argparse.SUPPRESS)
     actions.add_parser("disable", help="turn off automatic cleaning")
     actions.add_parser("status", help="show mode and next run")
 
@@ -170,7 +173,24 @@ def _log_record(f: Finding, action: str) -> dict:
     }
 
 
+ROOT_REFUSAL = (
+    "shoo: refusing to run as root. shoo acts on the current user's processes, and for root those "
+    "are system daemons; only the systemd service check would protect them, and without systemd "
+    "nothing would. Run it as the user whose agents leave processes behind. If you really mean "
+    "it, pass --allow-root."
+)
+
+
+def _refuse_root(args: argparse.Namespace) -> bool:
+    if os.geteuid() == 0 and not args.allow_root:
+        print(ROOT_REFUSAL, file=sys.stderr)
+        return True
+    return False
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
+    if _refuse_root(args):
+        return 2
     report = _report(args)
     _print_report(report, hint=None)
     targets = report.actionable
@@ -196,6 +216,8 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
 def cmd_schedule(args: argparse.Namespace) -> int:
     if args.action == "enable":
+        if _refuse_root(args):
+            return 2
         return schedule.enable(args.every, args.min_age, args.require_idle, args.dry_run)
     return schedule.disable() if args.action == "disable" else schedule.status()
 
