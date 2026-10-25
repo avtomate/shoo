@@ -28,5 +28,11 @@ First release.
 - `shoo log`: what was cleaned, or would have been.
 - Config file for a default minimum age and protect rules.
 
+### Safety
+
+- `clean` and `schedule enable` refuse to run as root unless `--allow-root` is given.
+- Apps started from a desktop launcher (`app-*.scope`) aren't treated as orphans, even when their
+  parent is the systemd user manager.
+
 [Unreleased]: https://github.com/avtomate/shoo/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/avtomate/shoo/releases/tag/v0.1.0

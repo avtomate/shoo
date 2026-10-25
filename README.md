@@ -18,6 +18,11 @@ or automatically on a timer.
 <sub>Recorded from real runs against simulated leftovers. They were started seconds earlier, hence
 the `0m` ages; the demo's config sets `min_age` to 0.</sub>
 
+> **Status: alpha.** shoo has been used on Ubuntu servers running agents under systemd, and is
+> tested in CI on Ubuntu. Desktop Linux sessions, WSL and distros without systemd haven't been
+> tried yet. Start with `shoo scan` and the timer's `--dry-run`, and please
+> [report](https://github.com/avtomate/shoo/issues/new/choose) anything it gets wrong.
+
 ## Quick start
 
 Requires Linux and Python 3.11+. No dependencies, no root.
@@ -131,7 +136,14 @@ explains why there's nothing to do.
 **Will it kill my Docker containers, tmux sessions, or the agent I'm running right now?**
 No. Containers and systemd services are excluded by cgroup; `tmux`, `screen` and `sshd` are never
 touched. Anything in a live terminal, or whose parent is still running (like the tools your current
-agent session is using), isn't orphaned and so isn't a candidate.
+agent session is using), isn't orphaned and so isn't a candidate. Neither is an app you started
+from your desktop's launcher, even though it may look parentless.
+
+**What actually gets left behind?**
+In testing with Claude Code, a session that exits normally cleans up after itself. One that dies
+abruptly (killed, crashed, out of memory, a dropped connection) leaves its background shell tasks
+running indefinitely; MCP servers like the official filesystem server exited on their own. Dev
+servers and browsers started by an agent's tasks go with the task's tree, so shoo cleans them too.
 
 **Why not earlyoom or systemd-oomd?**
 They solve a different problem. They step in when memory is nearly gone and kill whatever is
@@ -143,7 +155,9 @@ Add it to `protect` in the config. Please also open an issue with the command li
 private), so the rule can be tightened.
 
 **Does it need root? Does it work on macOS?**
-No root: it only acts on your own processes. Linux only for now; it reads `/proc`.
+No root: it acts on your own processes. In fact `shoo clean` and `shoo schedule enable` refuse to
+run as root, because root's "own processes" are system daemons (`--allow-root` overrides, but run
+it as the user whose agents leave processes behind instead). Linux only for now; it reads `/proc`.
 
 ## Uninstall
 
