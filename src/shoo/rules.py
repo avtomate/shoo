@@ -113,6 +113,9 @@ RULES: tuple[Rule, ...] = (
 # runs, so ordinary rules would misfire on it.
 SHELLS = frozenset({"bash", "sh", "dash", "zsh", "fish"})
 
+# app-<launcher>-<app>-<pid>.scope, the name GNOME gives the scope of an app it launches.
+DESKTOP_APP_SCOPE = re.compile(r"^app-.+-(\d+)\.scope$")
+
 # Programs we refuse to touch even if a rule somehow matches them or their parent.
 PROTECTED_COMMS = frozenset(
     {"systemd", "sshd", "sshd-session", "tmux: server", "tmux", "screen", "dockerd", "containerd"}
@@ -120,9 +123,12 @@ PROTECTED_COMMS = frozenset(
 PROTECTED_CGROUP_MARKERS = ("docker", "containerd", "libpod", "kubepods", "lxc", "/system.slice/")
 
 
+DEFAULT_MIN_AGE_S = 3600.0
+
+
 @dataclass(frozen=True)
 class Policy:
-    min_age_s: float = 3600.0
+    min_age_s: float = DEFAULT_MIN_AGE_S
     uid: int = field(default_factory=os.getuid)
     protect: tuple[re.Pattern, ...] = ()
 
@@ -206,14 +212,16 @@ def protected_reason(proc: Proc, policy: Policy) -> str | None:
 
 
 def launched_by_desktop(proc: Proc) -> bool:
-    """Started on purpose from a desktop launcher (GNOME and others put these in app-*.scope).
+    """The exact process a desktop launcher started on purpose.
 
-    Such apps can have the systemd user manager as their parent from the start, which would
-    otherwise look exactly like an orphan. Terminals use their own scopes (vte-spawn-*, tmux-spawn-*),
-    so leftovers from a closed terminal are still caught.
+    Such an app can have the systemd user manager as its parent from the start, which would
+    otherwise look exactly like an orphan. Launchers that follow systemd's desktop conventions
+    (GNOME does) name its scope after its PID. Only that one process is exempt, and only while it
+    has no terminal: its children, and anything run in a terminal inside the app (a closed kitty
+    window, VS Code's terminal), are judged like any other process once their parent is gone.
     """
-    leaf = proc.cgroup.rstrip("/").rsplit("/", 1)[-1]
-    return leaf.startswith("app-") and leaf.endswith(".scope")
+    m = DESKTOP_APP_SCOPE.match(proc.cgroup.rstrip("/").rsplit("/", 1)[-1])
+    return m is not None and int(m.group(1)) == proc.pid and proc.tty_nr == 0
 
 
 def _top(proc: Proc, procs: dict[int, Proc]) -> Proc:

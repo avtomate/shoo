@@ -5,6 +5,7 @@ from helpers import ME, make_proc, table
 from shoo.rules import Policy, classify, explain, match_rule
 
 POLICY = Policy(min_age_s=3600, uid=ME)
+APP_SLICE = "/user.slice/user-1000.slice/user@1000.service/app.slice"
 OWN = 999_999  # a pid that isn't in any test table
 
 
@@ -97,10 +98,26 @@ class Classification(unittest.TestCase):
         # Desktop launchers can leave apps parented to the user manager from the start.
         manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
         app = make_proc(100, "chromium --headless=new --remote-debugging-port=9222", ppid=300,
-                        cgroup="/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-chromium-42.scope")
+                        cgroup=f"{APP_SLICE}/app-gnome-chromium-100.scope")
         self.assertEqual(classify(table(manager, app), POLICY, OWN), [])
         why = dict((p.pid, r) for p, r in explain(table(manager, app), POLICY, set(), OWN))
         self.assertIn("launched from the desktop", why[100])
+
+    def test_leftovers_inside_a_desktop_app_are_still_orphans(self):
+        manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
+        cases = {
+            # VS Code (pid 50) was launched from the desktop and has exited; its language server stays.
+            "editor child": make_proc(100, "node /x/typescript/lib/tsserver.js", ppid=300,
+                                      cgroup=f"{APP_SLICE}/app-gnome-code-50.scope"),
+            # A dev server in a kitty window that was closed: its terminal is gone.
+            "closed terminal": make_proc(100, "vite --port 5173", ppid=300, tty_nr=(136 << 8) | 250,
+                                         cgroup=f"{APP_SLICE}/app-kitty-100.scope"),
+            # A launcher that doesn't name the scope after the pid gets no exemption.
+            "unnamed scope": make_proc(100, "vite", ppid=300, cgroup=f"{APP_SLICE}/app-foo@abc.scope"),
+        }
+        for name, proc in cases.items():
+            with self.subTest(name):
+                self.assertEqual(len(classify(table(manager, proc), POLICY, OWN)), 1)
 
     def test_leftover_from_a_closed_terminal_is_still_an_orphan(self):
         manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
