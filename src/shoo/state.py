@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from .procs import CLK_TCK
+from .util import xdg_dir
 
 IDLE_CPU_PCT = 1.0  # a tree averaging below this between runs counts as idle
 MIN_INTERVAL_S = 60  # readings closer together than this are too noisy to judge
@@ -21,8 +22,7 @@ LOG_MAX_LINES, LOG_KEEP_LINES = 5000, 2000
 
 
 def state_dir() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
-    return Path(base) / "shoo"
+    return xdg_dir("state") / "shoo"
 
 
 def _ensure_dir(path: Path) -> None:

@@ -36,6 +36,17 @@ class Redaction(unittest.TestCase):
                 self.assertEqual(redact(raw), expected)
                 self.assertNotIn("abc123", redact(raw))
 
+    def test_authorization_headers_and_jwts(self):
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+        for raw in [f"curl -H 'Authorization: Bearer {jwt}' https://api.example.com",
+                    "curl -H Authorization: Basic dXNlcjpodW50ZXIy https://x",
+                    f"node client.js --session {jwt}",
+                    "http GET x Proxy-Authorization:token-abcdef123456"]:
+            with self.subTest(raw=raw):
+                out = redact(raw)
+                for secret in ("eyJ", "dXNlcjpodW50ZXIy", "token-abcdef123456"):
+                    self.assertNotIn(secret, out)
+
     def test_leaves_normal_commands_alone(self):
         self.assertEqual(redact("vite --port 5173"), "vite --port 5173")
 

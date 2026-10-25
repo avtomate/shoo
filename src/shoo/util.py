@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 
 _DURATION = re.compile(r"^(\d+(?:\.\d+)?)\s*([smhd]?)$")
 _UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -33,9 +35,23 @@ def fmt_kb(kb: int) -> str:
     return f"{kb}K"
 
 
+_XDG = {"config": ("XDG_CONFIG_HOME", ".config"), "state": ("XDG_STATE_HOME", ".local/state")}
+
+
+def xdg_dir(kind: str) -> Path:
+    """$XDG_CONFIG_HOME or $XDG_STATE_HOME, with the standard fallbacks under ~."""
+    var, fallback = _XDG[kind]
+    return Path(os.environ.get(var) or Path.home() / fallback)
+
+
 _SECRET_WORDS = r"token|key|secret|passw(?:or)?d|passwd|auth|credential|bearer"
 _REDACTIONS = (
-    # --api-key=abc, --token abc, -p=abc
+    # Authorization: Bearer abc (curl -H ...), before the generic rules split it up
+    (re.compile(r"(?i)\b((?:proxy-)?authorization)\s*:\s*\S+(?:\s+[^\s'\"]+)?"), r"\1: ***"),
+    (re.compile(r"(?i)\b(bearer|basic)\s+[\w.~+/=-]{8,}"), r"\1 ***"),
+    # JWTs, wherever they appear
+    (re.compile(r"\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]+"), "***"),
+    # --api-key=abc, --token abc, --password=abc
     (re.compile(rf"(?i)(--?[\w-]*(?:{_SECRET_WORDS})[\w-]*)([=\s]+)\S+"), r"\1\2***"),
     # API_KEY=abc, GITHUB_TOKEN=abc
     (re.compile(rf"(?i)\b([\w]*(?:{_SECRET_WORDS})[\w]*)=\S+"), r"\1=***"),
