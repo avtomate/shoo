@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--require-idle", metavar="DURATION",
                         help="only clean trees shoo has watched sit idle this long (across runs)")
     common.add_argument("--include-active", action="store_true",
-                        help="also clean trees that have live connections")
+                        help="also clean trees that something outside is connected to")
     common.add_argument("--protect", action="append", default=[], metavar="REGEX",
                         help="never touch processes whose command line matches (repeatable)")
     common.add_argument("--sample", type=float, default=2.0, metavar="SECS",
@@ -92,6 +92,7 @@ def _report(args: argparse.Namespace, explain: bool = False) -> Report:
         include_active=args.include_active,
         tracker=tracker,
         explain_skipped=explain,
+        unattended=getattr(args, "yes", False),
     )
     try:
         tracker.save()
@@ -211,9 +212,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 1
     results = clean(targets, grace=args.grace)
-    state.append_log([_log_record(f, results[f.proc.pid]) for f in targets])
+    state.append_log([_log_record(f, results[f.proc.pid]) for f in targets if f.proc.pid in results])
     for pid, outcome in results.items():
         print(f"{pid:>7}  {outcome}")
+    if "interrupted" in results.values():
+        print("\nInterrupted: those marked 'interrupted' were sent SIGTERM but not force-killed.")
+        return 130
     return 0 if "denied" not in results.values() else 1
 
 
@@ -241,8 +245,8 @@ def cmd_rules(_: argparse.Namespace) -> int:
     for r in RULES:
         print(f"{r.name:<18} {r.description}")
     print("\nA process is a candidate only if it matches a rule AND is orphaned AND is older than "
-          "--min-age AND is yours AND is not a managed service or container. Trees with live "
-          "connections are held back.")
+          "--min-age AND is yours AND is not a managed service or container. Trees something "
+          "outside is connected to are held back.")
     return 0
 
 

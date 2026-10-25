@@ -34,6 +34,19 @@ class Prompt(unittest.TestCase):
                 self.assertIn("Aborted.", out.getvalue())
 
 
+class Interrupted(unittest.TestCase):
+    def test_interrupted_clean_is_logged_and_exits_130(self):
+        target = mock.Mock()
+        target.proc.pid = 4242
+        report = mock.Mock(actionable=[target], held={}, skipped=[], zombies=[])
+        with mock.patch.object(cli, "_report", return_value=report), mock.patch.object(cli, "_print_report"), \
+                mock.patch.object(cli, "clean", return_value={4242: "interrupted"}), \
+                mock.patch.object(cli, "_log_record", return_value={"pid": 4242}), \
+                mock.patch.object(cli.state, "append_log") as log, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["clean", "--yes"]), 130)
+        log.assert_called_once_with([{"pid": 4242}])
+
+
 class Root(unittest.TestCase):
     def test_clean_and_schedule_refuse_root(self):
         for argv in (["clean", "--yes"], ["schedule", "enable"]):

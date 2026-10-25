@@ -2,6 +2,7 @@ import dataclasses
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 from shoo.cleaner import clean, still_same
 from shoo.procs import read_proc
@@ -36,6 +37,20 @@ class RealProcesses(unittest.TestCase):
             self.assertEqual(child.stdout.readline().strip(), "ready")  # SIGTERM is now ignored
             self.assertEqual(clean([finding(proc)], grace=0.5), {child.pid: "killed"})
             child.wait(timeout=5)
+        finally:
+            child.kill()
+            child.wait()
+            child.stdout.close()
+
+    def test_ctrl_c_during_the_grace_period_does_not_escalate(self):
+        code = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "print('ready', flush=True); time.sleep(60)")
+        child, proc = spawn(code)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), "ready")
+            with mock.patch("shoo.cleaner.time.sleep", side_effect=KeyboardInterrupt):
+                self.assertEqual(clean([finding(proc)], grace=5), {child.pid: "interrupted"})
+            self.assertIsNone(child.poll())  # SIGTERM was ignored and no SIGKILL followed
         finally:
             child.kill()
             child.wait()

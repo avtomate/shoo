@@ -34,7 +34,8 @@ def clean(
 ) -> dict[int, str]:
     """SIGTERM everything, wait up to `grace` seconds, SIGKILL what remains.
 
-    Returns pid -> 'terminated' | 'killed' | 'gone' | 'denied'.
+    Returns pid -> 'terminated' | 'killed' | 'gone' | 'denied' | 'interrupted'. 'interrupted'
+    means Ctrl-C arrived during the grace period: SIGTERM was sent, but it isn't escalated.
     """
     results: dict[int, str] = {}
     pending: dict[int, Proc] = {}
@@ -47,12 +48,17 @@ def clean(
             pending[f.proc.pid] = f.proc
 
     deadline = time.monotonic() + grace
-    while pending and time.monotonic() < deadline:
-        for pid in [pid for pid, p in pending.items() if not still_same(p)]:
-            results[pid] = "terminated"
-            del pending[pid]
-        if pending:
-            time.sleep(poll)
+    try:
+        while pending and time.monotonic() < deadline:
+            for pid in [pid for pid, p in pending.items() if not still_same(p)]:
+                results[pid] = "terminated"
+                del pending[pid]
+            if pending:
+                time.sleep(poll)
+    except KeyboardInterrupt:
+        for pid, proc in pending.items():
+            results[pid] = "interrupted" if still_same(proc) else "terminated"
+        return results
 
     for pid, proc in pending.items():
         outcome = _send(proc, signal.SIGKILL)
