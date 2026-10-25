@@ -6,7 +6,7 @@ All notable changes to shoo are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-25
 
 First release.
 
