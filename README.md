@@ -61,11 +61,16 @@ A process is a **candidate** only if **all** of these are true:
 Its children go with it. A candidate tree is then **held back** (listed, not cleaned) when:
 
 - **someone is using it:** something outside the tree is connected to a port it's listening on
-  (a browser tab, an SSH tunnel). Outbound connections, like an agent's keep-alive to its API,
-  don't count. Or:
+  (a browser tab, an SSH tunnel), or it is connected to one of your own running programs (a
+  debugger attached to your editor). Other outbound connections, like an agent's keep-alive to
+  its API or a dev server's pool to a system database, don't count. Or:
 - **it hasn't been idle long enough:** with `--require-idle` (2h on the timer), shoo must have
   watched the whole tree stay under 1% CPU for that long, across runs. Children that already
   exited are counted too, so a loop that keeps spawning short commands isn't mistaken for idle.
+  Or:
+- **it might be a desktop app (unattended runs only):** it lives in a desktop app's scope and
+  shoo can't confirm the app that owned it has exited. Interactive `shoo clean` shows it and lets
+  you decide.
 
 `shoo scan --why` lists your processes that were *not* picked, and why. It's the quickest way to
 spot a leftover no rule catches yet.
@@ -103,7 +108,8 @@ Options for `scan` and `clean`:
 | `--config PATH` | `~/.config/shoo/config.toml` | A file you name must exist. |
 
 Exit codes: `0` success; `1` you declined at the prompt, or a process couldn't be signalled;
-`2` bad arguments, or `clean` was run without a terminal and without `--yes`.
+`2` bad arguments, `clean` run without a terminal and without `--yes`, or run as root;
+`130` interrupted with Ctrl-C (anything already sent SIGTERM is logged, and isn't force-killed).
 
 ## Configuration
 

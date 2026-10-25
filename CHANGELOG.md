@@ -21,7 +21,8 @@ First release.
   language servers, agent CLIs, background tasks from finished Claude Code sessions, and
   `tail -f`-style watchers.
 - Hold-back logic: trees that something outside is connected to (on a port the tree listens on)
-  are never cleaned (unless `--include-active`); outbound connections don't count, and `--require-idle` only cleans trees watched idle across runs, counting the
+  are never cleaned (unless `--include-active`), nor are trees connected out to one of your own
+  running programs; other outbound connections, like API keep-alives, don't count, and `--require-idle` only cleans trees watched idle across runs, counting the
   whole tree's CPU including children that already exited.
 - `shoo schedule`: an hourly systemd user timer with cautious unattended defaults (6h minimum age,
   2h idle), and a `--dry-run` mode for watching before going live.
@@ -38,7 +39,11 @@ First release.
   silently running without protect rules.
 - The timer pins `XDG_CONFIG_HOME` and `XDG_STATE_HOME`, so it uses the same config and log as your
   shell, and installs its units where the systemd user manager looks.
-- Credentials in `Authorization:` headers and JWTs are redacted from output and the log.
+- Unattended runs hold back trees in a desktop app's scope unless the app that owned it has
+  exited, since some launchers don't name the scope after the app's PID.
+- Ctrl-C during `clean` logs what was already signalled and doesn't escalate to SIGKILL.
+- Credentials in `Authorization:`, `x-api-key:`, `Cookie:` and similar headers, and JWTs, are
+  redacted from output and the log.
 
 [Unreleased]: https://github.com/avtomate/shoo/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/avtomate/shoo/releases/tag/v0.1.0
