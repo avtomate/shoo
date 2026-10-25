@@ -1,6 +1,7 @@
 # shoo
 
 [![test](https://github.com/avtomate/shoo/actions/workflows/test.yml/badge.svg)](https://github.com/avtomate/shoo/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/shoo)](https://pypi.org/project/shoo/)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Linux](https://img.shields.io/badge/platform-linux-lightgrey)
 ![No dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
@@ -14,7 +15,7 @@ notice, let alone remember to clean up. `shoo` runs quietly in the background, f
 leftovers that are orphaned and idle, and removes them. You never have to run a thing.
 
 ```bash
-pipx install git+https://github.com/avtomate/shoo
+pipx install shoo
 shoo schedule enable
 ```
 
@@ -37,7 +38,7 @@ the `0m` ages; the demo's config sets `min_age` to 0.</sub>
 Requires Linux and Python 3.11+. No dependencies, no root.
 
 ```bash
-pipx install git+https://github.com/avtomate/shoo
+pipx install shoo
 shoo schedule enable              # that's it: it now cleans up after your agents, hourly
 ```
 
