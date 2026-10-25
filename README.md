@@ -60,8 +60,9 @@ A process is a **candidate** only if **all** of these are true:
 
 Its children go with it. A candidate tree is then **held back** (listed, not cleaned) when:
 
-- **someone is using it:** anything outside the tree has a live TCP connection to it (a browser
-  tab, an SSH tunnel), or
+- **someone is using it:** something outside the tree is connected to a port it's listening on
+  (a browser tab, an SSH tunnel). Outbound connections, like an agent's keep-alive to its API,
+  don't count. Or:
 - **it hasn't been idle long enough:** with `--require-idle` (2h on the timer), shoo must have
   watched the whole tree stay under 1% CPU for that long, across runs. Children that already
   exited are counted too, so a loop that keeps spawning short commands isn't mistaken for idle.
@@ -76,7 +77,7 @@ spot a leftover no rule catches yet.
 | `MEM` | Proportional memory (PSS): shared pages are split between the processes sharing them, so the total is what you'd actually get back. Plain RSS would count Chrome's shared memory a dozen times. |
 | `CPU%` | CPU over a short sample (`--sample SECS`, default 2). |
 | `IDLE` | How long shoo has watched the whole tree sit idle; `new` the first time it sees it. |
-| `CONN` | Live TCP connections from *outside* the tree. |
+| `CONN` | Live connections from *outside* the tree into a port it's listening on. |
 | `PORTS` | Ports it's listening on. |
 
 ## Commands
@@ -96,10 +97,10 @@ Options for `scan` and `clean`:
 | --- | --- | --- |
 | `--min-age DURATION` | `1h` | Ignore anything younger (`30m`, `2h`, `1d`). |
 | `--require-idle DURATION` | off | Only clean trees watched idle this long. |
-| `--include-active` | off | Also clean trees with live outside connections. |
+| `--include-active` | off | Also clean trees that something is connected to. |
 | `--protect REGEX` | | Never touch matching command lines. Repeatable. |
 | `--sample SECS` | `2` | CPU measurement window; `0` to skip. |
-| `--config PATH` | `~/.config/shoo/config.toml` | |
+| `--config PATH` | `~/.config/shoo/config.toml` | A file you name must exist. |
 
 Exit codes: `0` success; `1` you declined at the prompt, or a process couldn't be signalled;
 `2` bad arguments, or `clean` was run without a terminal and without `--yes`.
@@ -137,7 +138,8 @@ explains why there's nothing to do.
 No. Containers and systemd services are excluded by cgroup; `tmux`, `screen` and `sshd` are never
 touched. Anything in a live terminal, or whose parent is still running (like the tools your current
 agent session is using), isn't orphaned and so isn't a candidate. Neither is an app you started
-from your desktop's launcher, even though it may look parentless.
+from GNOME's launcher, even though it may look parentless (once it exits, whatever it leaves
+behind is fair game).
 
 **What actually gets left behind?**
 In testing with Claude Code, a session that exits normally cleans up after itself. One that dies
