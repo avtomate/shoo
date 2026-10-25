@@ -19,6 +19,7 @@ IDLE_CPU_PCT = 1.0  # a tree averaging below this between runs counts as idle
 MIN_INTERVAL_S = 60  # readings closer together than this are too noisy to judge
 FORGET_AFTER_S = 2 * 86400
 LOG_MAX_LINES, LOG_KEEP_LINES = 5000, 2000
+LOG_FIELDS = frozenset({"ts", "action", "pid", "kind", "mem_kb", "command"})
 
 
 def state_dir() -> Path:
@@ -29,6 +30,19 @@ def _ensure_dir(path: Path) -> None:
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
 
+def _number(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
+def _valid_reading(v) -> bool:
+    return (
+        isinstance(v, dict)
+        and _number(v.get("ticks"))
+        and _number(v.get("seen"))
+        and (v.get("idle_since") is None or _number(v["idle_since"]))
+    )
+
+
 class IdleTracker:
     """Remembers CPU readings per tree (keyed by root pid + start time) across runs."""
 
@@ -36,9 +50,13 @@ class IdleTracker:
         self.path = path or state_dir() / "idle.json"
         self.now = time.time() if now is None else now
         try:
-            self.data: dict[str, dict] = json.loads(self.path.read_text())
+            raw = json.loads(self.path.read_text())
         except (OSError, ValueError):
-            self.data = {}
+            raw = {}
+        # Anything of the wrong shape is dropped, not trusted: a corrupt file must never stop
+        # every future run (including the timer's) with a traceback.
+        raw = raw if isinstance(raw, dict) else {}
+        self.data: dict[str, dict] = {k: v for k, v in raw.items() if _valid_reading(v)}
 
     def observe(self, key: str, ticks: int) -> float | None:
         """Record a reading. Returns seconds idle, or None if we haven't watched it long enough."""
@@ -78,7 +96,9 @@ def append_log(records: list[dict], path: Path | None = None) -> None:
             f.write(json.dumps(r) + "\n")
     lines = path.read_text().splitlines()
     if len(lines) > LOG_MAX_LINES:
-        path.write_text("\n".join(lines[-LOG_KEEP_LINES:]) + "\n")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("\n".join(lines[-LOG_KEEP_LINES:]) + "\n")
+        os.replace(tmp, path)
 
 
 def read_log(n: int, path: Path | None = None) -> list[dict]:
@@ -89,7 +109,15 @@ def read_log(n: int, path: Path | None = None) -> list[dict]:
     out = []
     for line in lines[-n:]:
         try:
-            out.append(json.loads(line))
+            entry = json.loads(line)
         except ValueError:
             continue
+        if isinstance(entry, dict) and LOG_FIELDS <= entry.keys():
+            out.append(entry)
     return out
+
+
+def already_recorded(path: Path | None = None) -> set[tuple[int, int]]:
+    """(pid, start time) of every process already logged as 'would-clean', so an hourly dry run
+    records a lingering process once instead of every hour."""
+    return {(e["pid"], e.get("start")) for e in read_log(LOG_MAX_LINES, path) if e["action"] == "would-clean"}

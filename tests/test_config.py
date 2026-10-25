@@ -32,6 +32,16 @@ class Config(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be a list"):
             load(write('protect = "my-app"\n'))
 
+    def test_unknown_keys_are_errors_with_a_hint(self):
+        # A misspelled key would otherwise mean running without protect rules, silently.
+        for text, hint in [('Protect = ["my-app"]\n', "did you mean 'protect'"),
+                           ('protects = ["my-app"]\n', "did you mean 'protect'"),
+                           ('min-age = "1d"\n', "did you mean 'min_age'"),
+                           ('colour = "red"\n', "expected min_age or protect")]:
+            with self.subTest(text=text), self.assertRaises(ValueError) as caught:
+                load(write(text))
+            self.assertIn(hint, str(caught.exception))
+
     def test_invalid_toml_is_a_clean_error(self):
         with self.assertRaises(ValueError):
             load(write("protect = [\n"))

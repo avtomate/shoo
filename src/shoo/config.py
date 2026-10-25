@@ -9,15 +9,24 @@ from __future__ import annotations
 import re
 import tomllib
 from dataclasses import dataclass
+from difflib import get_close_matches
 from pathlib import Path
 
 from .util import parse_duration, xdg_dir
+
+KNOWN_KEYS = frozenset({"min_age", "protect"})
 
 
 @dataclass(frozen=True)
 class Config:
     min_age_s: float | None = None
     protect: tuple[re.Pattern, ...] = ()
+
+
+def _describe_unknown(key: str) -> str:
+    close = get_close_matches(key.lower().replace("-", "_"), sorted(KNOWN_KEYS), n=1, cutoff=0.6)
+    hint = f"did you mean {close[0]!r}?" if close else f"expected {' or '.join(sorted(KNOWN_KEYS))}"
+    return f"unknown setting {key!r} ({hint})"
 
 
 def default_path() -> Path:
@@ -35,6 +44,9 @@ def load(path: Path | None = None) -> Config:
         if explicit:
             raise ValueError(f"config file not found: {path}") from None
         return Config()
+    unknown = sorted(set(data) - KNOWN_KEYS)
+    if unknown:
+        raise ValueError(f"{path}: {', '.join(_describe_unknown(k) for k in unknown)}")
     protect = data.get("protect", [])
     if not isinstance(protect, list) or not all(isinstance(p, str) for p in protect):
         raise ValueError(f'{path}: protect must be a list of strings, e.g. protect = ["my-app"]')
