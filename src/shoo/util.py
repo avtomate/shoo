@@ -46,9 +46,15 @@ def xdg_dir(kind: str) -> Path:
 
 _SECRET_WORDS = r"token|key|secret|passw(?:or)?d|passwd|auth|credential|bearer"
 _REDACTIONS = (
-    # Authorization: Bearer abc (curl -H ...), before the generic rules split it up
-    (re.compile(r"(?i)\b((?:proxy-)?authorization)\s*:\s*\S+(?:\s+[^\s'\"]+)?"), r"\1: ***"),
-    (re.compile(r"(?i)\b(bearer|basic)\s+[\w.~+/=-]{8,}"), r"\1 ***"),
+    # Authorization: Bearer abc (curl -H ...), before the generic rules split it up. The scheme
+    # word is only swallowed when there is one, so the next argument (often the URL) survives.
+    (re.compile(r"(?i)\b((?:proxy-)?authorization)\s*:\s*(?:(?:bearer|basic|digest|token)\s+)?[^\s'\"]+"),
+     r"\1: ***"),
+    # Other credential-carrying headers: x-api-key:, Cookie:, X-Auth-Token:, ...
+    (re.compile(r"(?i)\b([\w-]*(?:api[-_]?key|token|secret|cookie|session|auth)[\w-]*)\s*:\s*[^\s'\"]+"),
+     r"\1: ***"),
+    # A bare bearer token; long enough that it isn't an ordinary word
+    (re.compile(r"(?i)\b(bearer)\s+[\w.~+/=-]{16,}"), r"\1 ***"),
     # JWTs, wherever they appear
     (re.compile(r"\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]+"), "***"),
     # --api-key=abc, --token abc, --password=abc

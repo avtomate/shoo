@@ -47,6 +47,21 @@ class Redaction(unittest.TestCase):
                 for secret in ("eyJ", "dXNlcjpodW50ZXIy", "token-abcdef123456"):
                     self.assertNotIn(secret, out)
 
+    def test_other_credential_headers(self):
+        for raw in ['curl -H "x-api-key: abcd1234secretvalue" https://x',
+                    "curl -H 'Cookie: session=abcd1234secretvalue' https://x",
+                    "curl -H X-Auth-Token:abcd1234secretvalue https://x"]:
+            with self.subTest(raw=raw):
+                out = redact(raw)
+                self.assertNotIn("abcd1234secretvalue", out)
+                self.assertIn("https://x", out)
+
+    def test_redaction_keeps_the_rest_of_the_command(self):
+        self.assertEqual(redact("curl -H Authorization:token-abc https://example.com/path"),
+                         "curl -H Authorization: *** https://example.com/path")
+        self.assertEqual(redact("python -m http.server --bind 0.0.0.0 basic configuration_file"),
+                         "python -m http.server --bind 0.0.0.0 basic configuration_file")
+
     def test_leaves_normal_commands_alone(self):
         self.assertEqual(redact("vite --port 5173"), "vite --port 5173")
 

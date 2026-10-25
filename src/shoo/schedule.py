@@ -15,7 +15,6 @@ those variables are set only in your shell profile.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,17 +41,25 @@ def _systemctl(*args: str) -> subprocess.CompletedProcess:
         raise ValueError(NO_SYSTEMD) from None
 
 
-def _manager_env() -> dict[str, str]:
-    """The environment of the systemd user manager, which decides where it looks for units."""
-    r = _systemctl("show-environment")
-    if r.returncode != 0:
-        raise ValueError(f"couldn't reach your systemd user manager: {r.stderr.strip() or 'unknown error'}")
-    return dict(line.split("=", 1) for line in r.stdout.splitlines() if "=" in line)
+def unit_dir(strict: bool = True) -> Path:
+    """Where the systemd user manager actually looks for your units.
 
-
-def unit_dir() -> Path:
-    base = _manager_env().get("XDG_CONFIG_HOME") or Path.home() / ".config"
-    return Path(base) / "systemd" / "user"
+    Asks the manager for its search path rather than guessing from environment variables. With
+    strict=False (disable, status) an unreachable manager falls back to the standard location, so
+    the files can still be found and removed.
+    """
+    try:
+        r = _systemctl("show", "-p", "UnitPath", "--value")
+        if r.returncode != 0:
+            raise ValueError(f"couldn't reach your systemd user manager: {r.stderr.strip() or 'unknown error'}")
+    except ValueError:
+        if strict:
+            raise
+        return xdg_dir("config") / "systemd" / "user"
+    for entry in r.stdout.split():
+        if entry.endswith("/systemd/user") and not entry.startswith(("/run/", "/etc/", "/usr/")):
+            return Path(entry)
+    return Path.home() / ".config" / "systemd" / "user"
 
 
 def _quote(path: str) -> str:
@@ -113,8 +120,6 @@ def enable(
     require_idle_s = int(parse_duration(require_idle))
     if every_s < MIN_EVERY_S:
         raise ValueError("--every must be at least 5m")
-    if shutil.which("systemctl") is None:
-        raise ValueError(NO_SYSTEMD)
     # Resolves both for an installed package and for a plain checkout run with PYTHONPATH=src.
     pythonpath = str(Path(__file__).resolve().parent.parent)
     service, timer = render(every_s, min_age_s, require_idle_s, sys.executable, pythonpath, dry_run)
@@ -146,12 +151,19 @@ def enable(
     return 0
 
 
+def _try_systemctl(*args: str) -> None:
+    try:
+        _systemctl(*args)
+    except ValueError:
+        pass
+
+
 def disable() -> int:
-    d = unit_dir()
-    _systemctl("disable", "--now", f"{NAME}.timer")
+    d = unit_dir(strict=False)
+    _try_systemctl("disable", "--now", f"{NAME}.timer")
     for suffix in ("service", "timer"):
         (d / f"{NAME}.{suffix}").unlink(missing_ok=True)
-    _systemctl("daemon-reload")
+    _try_systemctl("daemon-reload")
     print("Disabled and removed the shoo timer.")
     return 0
 
@@ -159,7 +171,7 @@ def disable() -> int:
 def mode() -> str | None:
     """'live', 'dry-run', or None if not scheduled."""
     try:
-        service = (unit_dir() / f"{NAME}.service").read_text()
+        service = (unit_dir(strict=False) / f"{NAME}.service").read_text()
     except FileNotFoundError:
         return None
     return "dry-run" if "--dry-run" in service else "live"
@@ -171,7 +183,10 @@ def status() -> int:
         print("Not scheduled. Turn it on with: shoo schedule enable  (or --dry-run to watch first)")
         return 0
     print(f"Mode: {current}" + ("  (recording only, killing nothing)" if current == "dry-run" else ""))
-    print(_systemctl("list-timers", f"{NAME}.timer", "--no-pager").stdout.strip())
+    try:
+        print(_systemctl("list-timers", f"{NAME}.timer", "--no-pager").stdout.strip())
+    except ValueError:
+        print("(couldn't reach the systemd user manager to show the next run)")
     print("\nRecent activity: shoo log")
     print(f"Full run output:  journalctl --user -u {NAME}.service")
     return 0
