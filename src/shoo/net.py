@@ -1,8 +1,9 @@
 """TCP sockets: what a process listens on, and whether anything outside its tree is talking to it.
 
-A live connection from outside the tree (a browser tab, an SSH tunnel, another program) means
-someone is still using the process, so it is not abandoned. Connections between processes in the
-same tree (a dev server and its own worker) don't count.
+A live connection *into* a server the tree runs (a browser tab, an SSH tunnel, another program)
+means someone is still using it, so it is not abandoned. Outbound connections don't count: an
+abandoned agent can hold a keep-alive connection to an API forever. Nor do connections between
+processes in the same tree (a dev server and its own worker).
 """
 
 from __future__ import annotations
@@ -73,18 +74,25 @@ class NetView:
     def __init__(self, socks: list[Sock] | None = None, inodes_of=fd_inodes):
         self.socks = read_sockets() if socks is None else socks
         self._inodes_of = inodes_of
+        self._inode_cache: dict[int, set[str]] = {}
         self._by_ends = {(s.local, s.remote): s for s in self.socks if s.state == ESTABLISHED}
 
+    def _inodes(self, pid: int) -> set[str]:
+        if pid not in self._inode_cache:
+            self._inode_cache[pid] = self._inodes_of(pid)
+        return self._inode_cache[pid]
+
     def listening_ports(self, pid: int) -> tuple[int, ...]:
-        mine = self._inodes_of(pid)
+        mine = self._inodes(pid)
         return tuple(sorted({s.local[1] for s in self.socks if s.state == LISTEN and s.inode in mine}))
 
     def outside_connections(self, pids: set[int]) -> int:
-        """Established connections between this tree and anything not in it."""
-        tree = set().union(*(self._inodes_of(pid) for pid in pids)) if pids else set()
+        """Established connections from outside this tree into a port it is listening on."""
+        tree = set().union(*(self._inodes(pid) for pid in pids)) if pids else set()
+        serving = {s.local[1] for s in self.socks if s.state == LISTEN and s.inode in tree}
         count = 0
         for s in self.socks:
-            if s.state != ESTABLISHED or s.inode not in tree:
+            if s.state != ESTABLISHED or s.inode not in tree or s.local[1] not in serving:
                 continue
             if not s.remote[0].is_loopback:
                 count += 1

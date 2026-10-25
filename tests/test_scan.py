@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from helpers import ME, make_proc, table
-from shoo.net import ESTABLISHED, NetView, Sock
+from shoo.net import ESTABLISHED, LISTEN, NetView, Sock
 from shoo.procs import CLK_TCK
 from shoo.rules import Policy
 from shoo.scan import run, tree_key
@@ -41,14 +41,16 @@ class Gating(unittest.TestCase):
 
     def test_live_outside_connection_holds_the_tree(self):
         procs = table(make_proc(100, "vite"), make_proc(101, "esbuild", ppid=100))
-        net = quiet_net([Sock((LO, 5173), (OUTSIDE, 50000), ESTABLISHED, "9")], {101: {"9"}})
+        net = quiet_net([Sock((LO, 5173), (LO, 0), LISTEN, "8"),
+                         Sock((LO, 5173), (OUTSIDE, 50000), ESTABLISHED, "9")], {100: {"8"}, 101: {"9"}})
         report = go(procs, net=net)
         self.assertEqual(report.actionable, [])
         self.assertIn("1 live connection", report.held[100])
         self.assertEqual(report.findings[0].connections, 1)
 
     def test_include_active_overrides(self):
-        net = quiet_net([Sock((LO, 5173), (OUTSIDE, 50000), ESTABLISHED, "9")], {100: {"9"}})
+        net = quiet_net([Sock((LO, 5173), (LO, 0), LISTEN, "8"),
+                         Sock((LO, 5173), (OUTSIDE, 50000), ESTABLISHED, "9")], {100: {"8", "9"}})
         report = go(table(make_proc(100, "vite")), net=net, include_active=True)
         self.assertEqual(len(report.actionable), 1)
 

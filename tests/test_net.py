@@ -40,13 +40,28 @@ class Connections(unittest.TestCase):
 
     def test_loopback_peer_outside_the_tree_counts(self):
         # e.g. an SSH tunnel: sshd holds the other end
-        socks = [Sock((LO, 5173), (LO, 40000), ESTABLISHED, "2"),
+        socks = [self.listen, Sock((LO, 5173), (LO, 40000), ESTABLISHED, "2"),
                  Sock((LO, 40000), (LO, 5173), ESTABLISHED, "3")]
-        self.assertEqual(view(socks, {10: {"2"}, 99: {"3"}}).outside_connections({10}), 1)
+        self.assertEqual(view(socks, {10: {"1", "2"}, 99: {"3"}}).outside_connections({10}), 1)
 
     def test_unknown_peer_is_assumed_to_be_a_user(self):
-        socks = [Sock((LO, 5173), (LO, 40000), ESTABLISHED, "2")]
-        self.assertEqual(view(socks, {10: {"2"}}).outside_connections({10}), 1)
+        socks = [self.listen, Sock((LO, 5173), (LO, 40000), ESTABLISHED, "2")]
+        self.assertEqual(view(socks, {10: {"1", "2"}}).outside_connections({10}), 1)
+
+    def test_outbound_connections_do_not_count(self):
+        # An abandoned agent's keep-alive to an API, or a dev server's pool to a local database.
+        socks = [self.listen,
+                 Sock((LO, 51000), (OUTSIDE, 443), ESTABLISHED, "4"),
+                 Sock((LO, 51001), (LO, 5432), ESTABLISHED, "5"),
+                 Sock((LO, 5432), (LO, 51001), ESTABLISHED, "6")]
+        self.assertEqual(view(socks, {10: {"1", "4", "5"}, 99: {"6"}}).outside_connections({10}), 0)
+
+    def test_fd_directories_are_read_once(self):
+        calls = []
+        v = NetView([self.listen], inodes_of=lambda pid: calls.append(pid) or {"1"})
+        v.listening_ports(10)
+        v.outside_connections({10})
+        self.assertEqual(calls, [10])
 
 
 if __name__ == "__main__":
