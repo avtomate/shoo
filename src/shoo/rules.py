@@ -205,20 +205,36 @@ def protected_reason(proc: Proc, policy: Policy) -> str | None:
     return None
 
 
+def launched_by_desktop(proc: Proc) -> bool:
+    """Started on purpose from a desktop launcher (GNOME and others put these in app-*.scope).
+
+    Such apps can have the systemd user manager as their parent from the start, which would
+    otherwise look exactly like an orphan. Terminals use their own scopes (vte-spawn-*, tmux-spawn-*),
+    so leftovers from a closed terminal are still caught.
+    """
+    leaf = proc.cgroup.rstrip("/").rsplit("/", 1)[-1]
+    return leaf.startswith("app-") and leaf.endswith(".scope")
+
+
+def _top(proc: Proc, procs: dict[int, Proc]) -> Proc:
+    """Walk up through shell wrappers (`bash -c "npm run dev"`) to what actually launched it."""
+    top = proc
+    while True:
+        parent = procs.get(top.ppid)
+        if parent is None or parent.uid != top.uid or not is_shell(parent) or parent is top:
+            return top
+        top = parent
+
+
 def orphan_reason(proc: Proc, procs: dict[int, Proc]) -> str | None:
     """Why this process counts as orphaned, or None if it still has an owner.
 
     Shell wrappers (`bash -c "npm run dev"`) are looked through: a dev server is orphaned if the
     shell that launched it is.
     """
-    top = proc
-    while True:
-        parent = procs.get(top.ppid)
-        if parent is None or parent.uid != top.uid or not is_shell(parent) or parent is top:
-            break
-        top = parent
+    top = _top(proc, procs)
     tty = tty_state(top.tty_nr)
-    if tty == "alive":
+    if tty == "alive" or launched_by_desktop(top):
         return None
     parent = procs.get(top.ppid)
     reparented = top.ppid == 1 or (
@@ -298,6 +314,8 @@ def explain(
             parent = procs.get(p.ppid)
             if tty_state(p.tty_nr) == "alive":
                 why = f"matches {rule.name}, but attached to a live terminal"
+            elif launched_by_desktop(_top(p, procs)):
+                why = f"matches {rule.name}, but it was launched from the desktop"
             else:
                 owner = f"{parent.comm} {parent.pid}" if parent else str(p.ppid)
                 why = f"matches {rule.name}, but its parent ({owner}) is alive"

@@ -93,6 +93,23 @@ class Classification(unittest.TestCase):
         )
         self.assertEqual(classify(procs, POLICY, OWN), [])
 
+    def test_desktop_launched_app_is_not_an_orphan(self):
+        # Desktop launchers can leave apps parented to the user manager from the start.
+        manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
+        app = make_proc(100, "chromium --headless=new --remote-debugging-port=9222", ppid=300,
+                        cgroup="/user.slice/user-1000.slice/user@1000.service/app.slice/app-gnome-chromium-42.scope")
+        self.assertEqual(classify(table(manager, app), POLICY, OWN), [])
+        why = dict((p.pid, r) for p, r in explain(table(manager, app), POLICY, set(), OWN))
+        self.assertIn("launched from the desktop", why[100])
+
+    def test_leftover_from_a_closed_terminal_is_still_an_orphan(self):
+        manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
+        for scope in ("vte-spawn-42.scope", "tmux-spawn-42.scope", "session-3.scope"):
+            with self.subTest(scope=scope):
+                left = make_proc(100, "chromium --headless=new", ppid=300,
+                                 cgroup=f"/user.slice/user-1000.slice/user@1000.service/app.slice/{scope}")
+                self.assertEqual(kinds(classify(table(manager, left), POLICY, OWN)), {100: "headless-browser"})
+
     def test_young_process_is_left_alone(self):
         procs = table(make_proc(100, "vite", age_s=60))
         self.assertEqual(classify(procs, POLICY, OWN), [])
