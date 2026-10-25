@@ -49,12 +49,19 @@ class Connections(unittest.TestCase):
         self.assertEqual(view(socks, {10: {"1", "2"}}).outside_connections({10}), 1)
 
     def test_outbound_connections_do_not_count(self):
-        # An abandoned agent's keep-alive to an API, or a dev server's pool to a local database.
+        # An abandoned agent's keep-alive to an API, or a dev server's pool to a system database
+        # (owned by another user, e.g. postgres).
         socks = [self.listen,
-                 Sock((LO, 51000), (OUTSIDE, 443), ESTABLISHED, "4"),
-                 Sock((LO, 51001), (LO, 5432), ESTABLISHED, "5"),
-                 Sock((LO, 5432), (LO, 51001), ESTABLISHED, "6")]
+                 Sock((LO, 51000), (OUTSIDE, 443), ESTABLISHED, "4", uid=1000),
+                 Sock((LO, 51001), (LO, 5432), ESTABLISHED, "5", uid=1000),
+                 Sock((LO, 5432), (LO, 51001), ESTABLISHED, "6", uid=120)]
         self.assertEqual(view(socks, {10: {"1", "4", "5"}, 99: {"6"}}).outside_connections({10}), 0)
+
+    def test_outbound_to_your_own_live_process_counts(self):
+        # A debug adapter or language server that dialed into a running editor.
+        socks = [Sock((LO, 51002), (LO, 5678), ESTABLISHED, "7", uid=1000),
+                 Sock((LO, 5678), (LO, 51002), ESTABLISHED, "8", uid=1000)]
+        self.assertEqual(view(socks, {10: {"7"}, 99: {"8"}}).outside_connections({10}), 1)
 
     def test_fd_directories_are_read_once(self):
         calls = []

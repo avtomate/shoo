@@ -1,9 +1,11 @@
 """TCP sockets: what a process listens on, and whether anything outside its tree is talking to it.
 
-A live connection *into* a server the tree runs (a browser tab, an SSH tunnel, another program)
-means someone is still using it, so it is not abandoned. Outbound connections don't count: an
-abandoned agent can hold a keep-alive connection to an API forever. Nor do connections between
-processes in the same tree (a dev server and its own worker).
+A tree is in use when something outside it is connected to it:
+  - a connection *into* a port it listens on (a browser tab, an SSH tunnel), or
+  - a loopback connection *out* to one of your own live processes (a debug adapter or language
+    server attached to a running editor).
+Other outbound connections don't count: an abandoned agent can hold a keep-alive to an API, or a
+dev server a pool to a system database, forever. Nor do connections within the tree.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ class Sock:
     remote: Addr
     state: str
     inode: str
+    uid: int = -1
 
 
 def parse_addr(text: str) -> Addr:
@@ -48,7 +51,7 @@ def read_sockets() -> list[Sock]:
         for line in lines:
             f = line.split()
             if len(f) > 9:
-                socks.append(Sock(parse_addr(f[1]), parse_addr(f[2]), f[3], f[9]))
+                socks.append(Sock(parse_addr(f[1]), parse_addr(f[2]), f[3], f[9], int(f[7])))
     return socks
 
 
@@ -75,6 +78,7 @@ class NetView:
         self.socks = read_sockets() if socks is None else socks
         self._inodes_of = inodes_of
         self._inode_cache: dict[int, set[str]] = {}
+        self._listen_port = {s.inode: s.local[1] for s in self.socks if s.state == LISTEN}
         self._by_ends = {(s.local, s.remote): s for s in self.socks if s.state == ESTABLISHED}
 
     def _inodes(self, pid: int) -> set[str]:
@@ -83,22 +87,21 @@ class NetView:
         return self._inode_cache[pid]
 
     def listening_ports(self, pid: int) -> tuple[int, ...]:
-        mine = self._inodes(pid)
-        return tuple(sorted({s.local[1] for s in self.socks if s.state == LISTEN and s.inode in mine}))
+        return tuple(sorted({self._listen_port[i] for i in self._inodes(pid) if i in self._listen_port}))
 
     def outside_connections(self, pids: set[int]) -> int:
-        """Established connections from outside this tree into a port it is listening on."""
+        """Live connections that show something outside this tree is using it (see module doc)."""
         tree = set().union(*(self._inodes(pid) for pid in pids)) if pids else set()
-        serving = {s.local[1] for s in self.socks if s.state == LISTEN and s.inode in tree}
+        serving = {self._listen_port[i] for i in tree if i in self._listen_port}
         count = 0
         for s in self.socks:
-            if s.state != ESTABLISHED or s.inode not in tree or s.local[1] not in serving:
+            if s.state != ESTABLISHED or s.inode not in tree:
                 continue
-            if not s.remote[0].is_loopback:
-                count += 1
-                continue
-            peer = self._by_ends.get((s.remote, s.local))
-            # An unknown peer (other user, another namespace, half-closed) is assumed to be a user.
-            if peer is None or peer.inode not in tree:
-                count += 1
+            peer = self._by_ends.get((s.remote, s.local)) if s.remote[0].is_loopback else None
+            if s.local[1] in serving:
+                # Inbound. An unknown peer (another user, namespace, half-closed) counts as a user.
+                if not s.remote[0].is_loopback or peer is None or peer.inode not in tree:
+                    count += 1
+            elif peer is not None and peer.inode not in tree and peer.uid == s.uid:
+                count += 1  # outbound to one of your own processes, e.g. an editor
         return count
