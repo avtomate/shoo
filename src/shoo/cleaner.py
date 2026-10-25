@@ -34,33 +34,40 @@ def clean(
 ) -> dict[int, str]:
     """SIGTERM everything, wait up to `grace` seconds, SIGKILL what remains.
 
-    Returns pid -> 'terminated' | 'killed' | 'gone' | 'denied' | 'interrupted'. 'interrupted'
-    means Ctrl-C arrived during the grace period: SIGTERM was sent, but it isn't escalated.
+    Returns pid -> 'terminated' | 'killed' | 'gone' | 'denied' | 'interrupted' | 'not signalled'.
+    If Ctrl-C arrives at any point, nothing more is sent and every process still gets an entry:
+    'interrupted' (SIGTERM sent, not escalated), 'not signalled' (never reached), or the outcome
+    it already had.
     """
     results: dict[int, str] = {}
     pending: dict[int, Proc] = {}
 
-    for f in findings:
-        outcome = _send(f.proc, signal.SIGTERM)
-        if outcome:
-            results[f.proc.pid] = outcome
-        else:
-            pending[f.proc.pid] = f.proc
-
-    deadline = time.monotonic() + grace
     try:
+        for f in findings:
+            outcome = _send(f.proc, signal.SIGTERM)
+            if outcome:
+                results[f.proc.pid] = outcome
+            else:
+                pending[f.proc.pid] = f.proc
+
+        deadline = time.monotonic() + grace
         while pending and time.monotonic() < deadline:
             for pid in [pid for pid, p in pending.items() if not still_same(p)]:
                 results[pid] = "terminated"
                 del pending[pid]
             if pending:
                 time.sleep(poll)
-    except KeyboardInterrupt:
-        for pid, proc in pending.items():
-            results[pid] = "interrupted" if still_same(proc) else "terminated"
-        return results
 
-    for pid, proc in pending.items():
-        outcome = _send(proc, signal.SIGKILL)
-        results[pid] = outcome or "killed"
+        for pid, proc in pending.items():
+            outcome = _send(proc, signal.SIGKILL)
+            results[pid] = outcome or "killed"
+    except KeyboardInterrupt:
+        for f in findings:
+            pid = f.proc.pid
+            if pid in results:
+                continue
+            if pid in pending:
+                results[pid] = "interrupted" if still_same(pending[pid]) else "terminated"
+            else:
+                results[pid] = "not signalled"
     return results

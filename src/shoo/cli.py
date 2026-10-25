@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"shoo {__version__}")
     sub = p.add_subparsers(dest="command")
 
-    sc = sub.add_parser("scan", parents=[common], help="list leftover processes (changes nothing)")
+    sc = sub.add_parser("scan", parents=[common], help="list leftover processes (never signals anything)")
     sc.add_argument("--json", action="store_true", help="machine-readable output")
     sc.add_argument("--why", action="store_true",
                     help="also list your orphaned or rule-matching processes that were skipped, and why")
@@ -167,8 +167,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def _log_record(f: Finding, action: str) -> dict:
     return {
-        "ts": round(time.time()), "action": action, "pid": f.proc.pid, "kind": f.rule,
-        "mem_kb": f.mem_kb, "age_s": round(f.proc.age_s), "command": redact(f.proc.cmdline),
+        "ts": round(time.time()), "action": action, "pid": f.proc.pid, "start": f.proc.starttime,
+        "kind": f.rule, "mem_kb": f.mem_kb, "age_s": round(f.proc.age_s), "command": redact(f.proc.cmdline),
     }
 
 
@@ -187,6 +187,14 @@ def _refuse_root(args: argparse.Namespace) -> bool:
     return False
 
 
+def _record(records: list[dict]) -> None:
+    """Write to the log. A failure is reported but never hides what was done."""
+    try:
+        state.append_log(records)
+    except OSError as e:
+        print(f"shoo: couldn't write the log ({e}); the results above are not recorded", file=sys.stderr)
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
     if _refuse_root(args):
         return 2
@@ -196,7 +204,11 @@ def cmd_clean(args: argparse.Namespace) -> int:
     if not targets:
         return 0
     if args.dry_run:
-        state.append_log([_log_record(f, "would-clean") for f in targets])
+        try:
+            seen = state.already_recorded()
+        except OSError:
+            seen = set()
+        _record([_log_record(f, "would-clean") for f in targets if (f.proc.pid, f.proc.starttime) not in seen])
         print(f"\nDry run: would have terminated {len(targets)} processes. Nothing was killed.")
         return 0
     if not args.yes:
@@ -212,11 +224,12 @@ def cmd_clean(args: argparse.Namespace) -> int:
             print("Aborted.")
             return 1
     results = clean(targets, grace=args.grace)
-    state.append_log([_log_record(f, results[f.proc.pid]) for f in targets if f.proc.pid in results])
     for pid, outcome in results.items():
         print(f"{pid:>7}  {outcome}")
-    if "interrupted" in results.values():
-        print("\nInterrupted: those marked 'interrupted' were sent SIGTERM but not force-killed.")
+    _record([_log_record(f, results[f.proc.pid]) for f in targets if f.proc.pid in results])
+    if "interrupted" in results.values() or "not signalled" in results.values():
+        print("\nInterrupted: 'interrupted' processes were sent SIGTERM but not force-killed; "
+              "'not signalled' ones were left alone.")
         return 130
     return 0 if "denied" not in results.values() else 1
 

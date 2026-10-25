@@ -4,6 +4,7 @@ import sys
 import unittest
 from unittest import mock
 
+from shoo import cleaner
 from shoo.cleaner import clean, still_same
 from shoo.procs import read_proc
 from shoo.rules import Finding
@@ -55,6 +56,29 @@ class RealProcesses(unittest.TestCase):
             child.kill()
             child.wait()
             child.stdout.close()
+
+    def test_ctrl_c_while_sending_sigterms_still_reports_every_process(self):
+        first, proc1 = spawn()
+        second, proc2 = spawn()
+        real_send, calls = cleaner._send, []
+
+        def interrupt_on_second(proc, sig):
+            calls.append(proc.pid)
+            if len(calls) == 2:
+                raise KeyboardInterrupt
+            return real_send(proc, sig)
+
+        try:
+            with mock.patch.object(cleaner, "_send", interrupt_on_second):
+                results = clean([finding(proc1), finding(proc2)], grace=5)
+            self.assertEqual(results[second.pid], "not signalled")
+            self.assertIn(results[first.pid], {"interrupted", "terminated"})
+            self.assertIsNone(second.poll())  # never signalled
+        finally:
+            for child in (first, second):
+                child.kill()
+                child.wait()
+                child.stdout.close()
 
     def test_refuses_to_signal_a_recycled_pid(self):
         child, proc = spawn()

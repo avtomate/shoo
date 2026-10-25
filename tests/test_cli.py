@@ -47,6 +47,45 @@ class Interrupted(unittest.TestCase):
         log.assert_called_once_with([{"pid": 4242}])
 
 
+class LogFailures(unittest.TestCase):
+    def test_an_unwritable_log_never_hides_what_was_done(self):
+        target = mock.Mock()
+        target.proc.pid = 4242
+        report = mock.Mock(actionable=[target], held={}, skipped=[], zombies=[])
+        with mock.patch.object(cli, "_report", return_value=report), mock.patch.object(cli, "_print_report"), \
+                mock.patch.object(cli, "clean", return_value={4242: "terminated"}), \
+                mock.patch.object(cli, "_log_record", return_value={"pid": 4242}), \
+                mock.patch.object(cli.state, "append_log", side_effect=PermissionError("denied")), \
+                contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(cli.main(["clean", "--yes"]), 0)
+        self.assertIn("terminated", out.getvalue())
+        self.assertIn("couldn't write the log", err.getvalue())
+
+    def test_dry_run_survives_an_unwritable_log(self):
+        target = mock.Mock()
+        target.proc.pid, target.proc.starttime = 4242, 7
+        report = mock.Mock(actionable=[target], held={}, skipped=[], zombies=[])
+        with mock.patch.object(cli, "_report", return_value=report), mock.patch.object(cli, "_print_report"), \
+                mock.patch.object(cli, "_log_record", return_value={"pid": 4242}), \
+                mock.patch.object(cli.state, "already_recorded", side_effect=OSError), \
+                mock.patch.object(cli.state, "append_log", side_effect=OSError("disk full")), \
+                contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(["clean", "--dry-run"]), 0)
+        self.assertIn("Dry run", out.getvalue())
+
+    def test_dry_run_does_not_re_record_a_lingering_process(self):
+        seen, fresh = mock.Mock(), mock.Mock()
+        seen.proc.pid, seen.proc.starttime = 1, 10
+        fresh.proc.pid, fresh.proc.starttime = 2, 20
+        report = mock.Mock(actionable=[seen, fresh], held={}, skipped=[], zombies=[])
+        with mock.patch.object(cli, "_report", return_value=report), mock.patch.object(cli, "_print_report"), \
+                mock.patch.object(cli, "_log_record", side_effect=lambda f, a: {"pid": f.proc.pid}), \
+                mock.patch.object(cli.state, "already_recorded", return_value={(1, 10)}), \
+                mock.patch.object(cli.state, "append_log") as log, contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["clean", "--dry-run"])
+        log.assert_called_once_with([{"pid": 2}])
+
+
 class Root(unittest.TestCase):
     def test_clean_and_schedule_refuse_root(self):
         for argv in (["clean", "--yes"], ["schedule", "enable"]):
