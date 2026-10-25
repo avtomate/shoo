@@ -50,6 +50,28 @@ class RuleMatching(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(match_rule(make_proc(10, cmd, comm=cmd.split()[0].rsplit("/")[-1])))
 
+    def test_path_arguments_are_data_not_programs(self):
+        # Regression: a directory argument ending in a tool's name made an unrelated process match.
+        for cmd in ["python app.py --root /home/me/mcp",
+                    "python app.py --root=/home/me/vite",
+                    "python app.py /home/me/vite",
+                    "node server.js ./vite",
+                    "python train.py --data ../mcp"]:
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(match_rule(make_proc(10, cmd)))
+
+    def test_programs_and_scripts_are_still_found_by_file_name(self):
+        for cmd, expected in {
+            "/usr/bin/chromium --headless=new": "headless-browser",
+            "node /x/typescript/lib/tsserver.js": "language-server",
+            "/srv/venv/bin/uvicorn app:app --reload": "python-dev-server",
+            "python3 -m uvicorn app:app --reload": "python-dev-server",
+            "npx -y @modelcontextprotocol/server-filesystem /srv/files": "mcp-server",
+            "node /x/node_modules/.bin/vite --port 5173": "node-dev-server",
+        }.items():
+            with self.subTest(cmd=cmd):
+                self.assertEqual(match_rule(make_proc(10, cmd)).name, expected)
+
     def test_words_in_paths_and_flags_do_not_count(self):
         # Regression: a bash wrapper whose `cd` target was a project directory named *-mcp was
         # flagged as an MCP server.
@@ -142,6 +164,19 @@ class Classification(unittest.TestCase):
             with self.subTest(cgroup=cg):
                 procs = table(make_proc(100, "vite", cgroup=cg))
                 self.assertEqual(classify(procs, POLICY, OWN), [])
+
+    def test_sub_cgroups_of_a_service_are_protected(self):
+        user = "/user.slice/user-1000.slice/user@1000.service"
+        for cg in [f"{user}/app.slice/foo.service/payload",
+                   f"{user}/app.slice/foo.service/a/b",
+                   "/user.slice/user-1000.slice/user@1000.service/app.slice/foo.service"]:
+            with self.subTest(cgroup=cg):
+                self.assertEqual(classify(table(make_proc(100, "vite", cgroup=cg)), POLICY, OWN), [])
+
+    def test_the_user_manager_itself_is_not_a_service_to_protect(self):
+        # Every one of your processes lives under user@UID.service; that must not protect them all.
+        cg = "/user.slice/user-1000.slice/user@1000.service/app.slice/tmux-spawn-42.scope"
+        self.assertEqual(len(classify(table(make_proc(100, "vite", cgroup=cg)), POLICY, OWN)), 1)
 
     def test_live_terminal_protects_a_process(self):
         # tty_nr for /dev/pts/0 is major 136, minor 0; this test box has pts/0 or not,

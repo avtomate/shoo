@@ -116,6 +116,8 @@ SHELLS = frozenset({"bash", "sh", "dash", "zsh", "fish"})
 # app-<launcher>-<app>-<pid>.scope, the name GNOME gives the scope of an app it launches.
 DESKTOP_APP_SCOPE = re.compile(r"^app-.+-(\d+)\.scope$")
 
+USER_MANAGER = re.compile(r"^user@\d+\.service$")
+
 # Programs we refuse to touch even if a rule somehow matches them or their parent.
 PROTECTED_COMMS = frozenset(
     {"systemd", "sshd", "sshd-session", "tmux: server", "tmux", "screen", "dockerd", "containerd"}
@@ -155,24 +157,32 @@ class Finding:
 
 
 def _head(cmdline: str, n: int, skip_flags: bool = False) -> str:
-    """The program and its first n-1 arguments, with directories stripped.
+    """The program and its first n-1 arguments, reduced to what identifies them.
 
     Directory names (a project called `my-mcp`, a cwd under `.claude/`) say nothing about what a
-    process is. Two things that look like paths are not: npm scopes (`@org/pkg`) and packages
-    inside node_modules, where the package directory *is* the program.
+    process is, so a path never contributes its directories:
+      - the program itself (`/usr/bin/chromium`) and script files (`/x/lib/tsserver.js`) count by
+        their file name;
+      - any other path argument (`--root /home/me/mcp`, `python app.py /srv/vite`) is data, shown
+        as `<path>`;
+      - flags are kept as written, never path-stripped (`--root=/home/me/vite` stays one token).
+    Two things that look like paths are not: npm scopes (`@org/pkg`) and packages inside
+    node_modules, where the package directory *is* the program.
     """
     out = []
     for token in cmdline.split():
-        if skip_flags and token.startswith("-"):
-            continue
-        if token.startswith("@"):
+        if token.startswith("-"):
+            if skip_flags:
+                continue
+        elif token.startswith("@"):
             pass
         elif "node_modules/" in token:
             token = token.rsplit("node_modules/", 1)[1]
             if token.startswith(".bin/"):
                 token = token.rsplit("/", 1)[-1]
-        else:
-            token = token.rsplit("/", 1)[-1]
+        elif "/" in token:
+            name = token.rsplit("/", 1)[-1]
+            token = name if not out or "." in name else "<path>"
         out.append(token)
         if len(out) == n:
             break
@@ -194,6 +204,15 @@ def match_rule(proc: Proc) -> Rule | None:
     return None
 
 
+def _in_managed_service(cgroup: str) -> bool:
+    """True if any level of the cgroup path is a systemd service, so the sub-cgroups of a service
+    (Delegate=yes, nested units) are covered too. `user@UID.service` is excluded: it is the user
+    manager that every one of your processes lives under, not a service of its own."""
+    return any(
+        part.endswith(".service") and not USER_MANAGER.match(part) for part in cgroup.split("/")
+    )
+
+
 def protected_reason(proc: Proc, policy: Policy) -> str | None:
     if proc.pid <= 1:
         return "init"
@@ -201,9 +220,7 @@ def protected_reason(proc: Proc, policy: Policy) -> str | None:
         return "owned by another user"
     if proc.comm in PROTECTED_COMMS:
         return f"protected program ({proc.comm})"
-    if proc.cgroup.rstrip("/").endswith(".service") or any(
-        m in proc.cgroup for m in PROTECTED_CGROUP_MARKERS
-    ):
+    if _in_managed_service(proc.cgroup) or any(m in proc.cgroup for m in PROTECTED_CGROUP_MARKERS):
         return "managed service or container"
     for pat in policy.protect:
         if pat.search(proc.cmdline):
