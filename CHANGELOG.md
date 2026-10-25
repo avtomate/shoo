@@ -41,7 +41,19 @@ First release.
   shell, and installs its units where the systemd user manager looks.
 - Unattended runs hold back trees in a desktop app's scope unless the app that owned it has
   exited, since some launchers don't name the scope after the app's PID.
-- Ctrl-C during `clean` logs what was already signalled and doesn't escalate to SIGKILL.
+- Ctrl-C at any point during `clean` stops sending signals, reports every process (including ones
+  never reached) and logs what was already signalled; nothing is escalated to SIGKILL.
+- Rules identify a process by its program and script file names only. A directory argument such
+  as `--root /home/me/mcp` or `python app.py /srv/vite` can no longer make an unrelated process
+  match a rule.
+- Anything inside a systemd service's cgroup tree is protected, including nested sub-cgroups.
+- An unknown key in `config.toml` (`Protect`, `min-age`) is an error with a hint, not silently
+  ignored.
+- A corrupt or foreign `idle.json` or `log.jsonl` is discarded or skipped instead of crashing
+  every run, and a log write failure never hides what `clean` did.
+- A dry-run records each lingering process once, not on every hourly run.
+- Redaction covers attached short options (`mysql -pSECRET`) and no longer swallows the argument
+  after a boolean flag such as `--no-auth`.
 - Credentials in `Authorization:`, `x-api-key:`, `Cookie:` and similar headers, and JWTs, are
   redacted from output and the log.
 

@@ -52,7 +52,7 @@ shoo schedule enable              # looks right? go live
 Prefer to run it by hand, or just curious what's lying around right now?
 
 ```bash
-shoo                              # list leftovers (changes nothing)
+shoo                              # list leftovers (never kills anything)
 shoo clean                        # clean them up (asks first)
 ```
 
@@ -149,7 +149,8 @@ protect = ["my-staging-app", "--port 8080"]   # regexes against the command line
 
 ## Safety and privacy
 
-- **Read-only by default.** `scan` changes nothing. `clean` asks first and refuses to run without a
+- **Read-only by default.** `scan` never signals a process; the only thing it writes is the idle
+  history that lets shoo tell how long something has been quiet. `clean` asks first and refuses to run without a
   terminal unless you pass `--yes`. `--dry-run` never signals anything.
 - **No PID-reuse accidents.** It re-checks each process's start time right before signalling, so a
   recycled PID is never hit.
