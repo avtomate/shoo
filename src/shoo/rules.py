@@ -224,7 +224,7 @@ def launched_by_desktop(proc: Proc) -> bool:
     return m is not None and int(m.group(1)) == proc.pid and proc.tty_nr == 0
 
 
-def _top(proc: Proc, procs: dict[int, Proc]) -> Proc:
+def launcher(proc: Proc, procs: dict[int, Proc]) -> Proc:
     """Walk up through shell wrappers (`bash -c "npm run dev"`) to what actually launched it."""
     top = proc
     while True:
@@ -240,7 +240,7 @@ def orphan_reason(proc: Proc, procs: dict[int, Proc]) -> str | None:
     Shell wrappers (`bash -c "npm run dev"`) are looked through: a dev server is orphaned if the
     shell that launched it is.
     """
-    top = _top(proc, procs)
+    top = launcher(proc, procs)
     tty = tty_state(top.tty_nr)
     if tty == "alive" or launched_by_desktop(top):
         return None
@@ -322,7 +322,7 @@ def explain(
             parent = procs.get(p.ppid)
             if tty_state(p.tty_nr) == "alive":
                 why = f"matches {rule.name}, but attached to a live terminal"
-            elif launched_by_desktop(_top(p, procs)):
+            elif launched_by_desktop(launcher(p, procs)):
                 why = f"matches {rule.name}, but it was launched from the desktop"
             else:
                 owner = f"{parent.comm} {parent.pid}" if parent else str(p.ppid)

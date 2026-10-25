@@ -1,8 +1,11 @@
 """The pipeline: find candidates, measure them, and decide which trees are safe to clean.
 
 A candidate tree (see rules.py) is *held back* rather than cleaned when:
-  - something outside the tree has a live TCP connection to it (someone is using it), or
-  - `require_idle_s` is set and shoo hasn't seen the whole tree idle for that long.
+  - something outside the tree is connected to it (see net.py), or
+  - `require_idle_s` is set and shoo hasn't seen the whole tree idle for that long, or
+  - the run is unattended and the tree lives in a desktop app's scope without being a confirmed
+    leftover: some launchers don't name the scope after the app's PID, so an app started on
+    purpose can't be told apart from a leftover. Interactive runs show it and let you decide.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from dataclasses import dataclass, field, replace
 
 from .net import NetView
 from .procs import CLK_TCK, Proc, pss_kb, read_proc, snapshot
-from .rules import Finding, Policy, classify, explain
+from .rules import DESKTOP_APP_SCOPE, Finding, Policy, classify, explain, launcher
 from .state import IdleTracker
 from .util import fmt_age
 
@@ -35,6 +38,17 @@ class Report:
 
 def tree_key(proc: Proc) -> str:
     return f"{proc.pid}:{proc.starttime}"
+
+
+def _desktop_doubt(proc: Proc, procs: dict[int, Proc]) -> str | None:
+    """Why an unattended run shouldn't touch this tree, if it sits in a desktop app's scope."""
+    leaf = launcher(proc, procs).cgroup.rstrip("/").rsplit("/", 1)[-1]
+    if not (leaf.startswith("app-") and leaf.endswith(".scope")):
+        return None
+    m = DESKTOP_APP_SCOPE.match(leaf)
+    if m and int(m.group(1)) not in procs:
+        return None  # the app this scope was made for has exited: what's left is a leftover
+    return "inside a desktop app; clean it by hand if it's abandoned"
 
 
 def _sample_cpu(findings: list[Finding], sample: float) -> list[Finding]:
@@ -60,6 +74,7 @@ def run(
     include_active: bool = False,
     tracker: IdleTracker | None = None,
     explain_skipped: bool = False,
+    unattended: bool = False,
     procs: dict[int, Proc] | None = None,
     net: NetView | None = None,
     own_pid: int | None = None,
@@ -90,7 +105,9 @@ def run(
                 m, ports=net.listening_ports(m.proc.pid), pss_kb=pss_kb(m.proc.pid), **extra
             )
 
-        if conns and not include_active:
+        if unattended and (why := _desktop_doubt(root.proc, procs)):
+            held[root_pid] = why
+        elif conns and not include_active:
             held[root_pid] = f"in use: {conns} live connection{'s' if conns > 1 else ''}"
         elif require_idle_s is not None:
             if idle is None:

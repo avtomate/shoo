@@ -80,6 +80,22 @@ class Gating(unittest.TestCase):
         report = go(table(busy), require_idle_s=60, tracker=IdleTracker(path, now=3600))
         self.assertIn("idle 0m", report.held[100])
 
+    def test_unattended_runs_hold_back_trees_inside_desktop_apps(self):
+        manager = make_proc(300, "/lib/systemd/systemd --user", comm="systemd", ppid=1)
+        slice_ = "/user.slice/user-1000.slice/user@1000.service/app.slice"
+        # A launcher that doesn't name the scope after the PID: can't tell it from a leftover.
+        unnamed = make_proc(100, "vite", ppid=300, cgroup=f"{slice_}/app-org.foo-a1b2c3.scope")
+        # GNOME scope whose app (pid 50) has exited: a confirmed leftover.
+        leftover = make_proc(200, "vite", ppid=300, cgroup=f"{slice_}/app-gnome-code-50.scope")
+        procs = table(manager, unnamed, leftover)
+
+        unattended = go(procs, unattended=True)
+        self.assertIn("inside a desktop app", unattended.held[100])
+        self.assertNotIn(200, unattended.held)
+
+        interactive = go(procs)
+        self.assertEqual({f.proc.pid for f in interactive.actionable}, {100, 200})
+
     def test_memory_prefers_pss(self):
         report = go(table(make_proc(100, "vite", rss_kb=500)))
         f = report.findings[0]
