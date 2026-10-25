@@ -6,12 +6,20 @@
 ![No dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Clean up the processes your coding agents leave behind.**
+**Set it up once. Your server stops filling up with the processes your coding agents leave behind.**
 
 Agents start MCP servers, headless browsers, dev servers and background tasks, then the session
-ends and those processes keep running, holding hundreds of megabytes each. `shoo` finds the ones
-that are orphaned and idle, shows you exactly what they are, and cleans them up when you say so,
-or automatically on a timer.
+ends and those processes keep running, holding hundreds of megabytes each. You shouldn't have to
+notice, let alone remember to clean up. `shoo` runs quietly in the background, finds the
+leftovers that are orphaned and idle, and removes them. You never have to run a thing.
+
+```bash
+pipx install git+https://github.com/avtomate/shoo
+shoo schedule enable
+```
+
+That's the whole setup. Every hour a systemd timer runs shoo, and everything it removes is
+recorded for you to review whenever you like (`shoo log`).
 
 ![shoo finding leftovers, cleaning them, and showing the log](docs/demo.gif)
 
@@ -20,7 +28,8 @@ the `0m` ages; the demo's config sets `min_age` to 0.</sub>
 
 > **Status: alpha.** shoo has been used on Ubuntu servers running agents under systemd, and is
 > tested in CI on Ubuntu. Desktop Linux sessions, WSL and distros without systemd haven't been
-> tried yet. Start with `shoo scan` and the timer's `--dry-run`, and please
+> tried yet. If you'd like to see what it would do before it does anything, start with
+> `shoo schedule enable --dry-run` (below), and please
 > [report](https://github.com/avtomate/shoo/issues/new/choose) anything it gets wrong.
 
 ## Quick start
@@ -29,18 +38,37 @@ Requires Linux and Python 3.11+. No dependencies, no root.
 
 ```bash
 pipx install git+https://github.com/avtomate/shoo
-
-shoo                 # see what's lying around (changes nothing)
-shoo clean           # clean it up (asks first)
+shoo schedule enable              # that's it: it now cleans up after your agents, hourly
 ```
 
-Happy with what it finds? Let it run on its own:
+Want to trust it first? Watch before it acts:
 
 ```bash
-shoo schedule enable --dry-run   # watch first: record what it would clean, kill nothing
-shoo log                         # a few days later, review
-shoo schedule enable             # go live
+shoo schedule enable --dry-run    # records what it would clean, kills nothing
+shoo log                          # a few days later, see what it found
+shoo schedule enable              # looks right? go live
 ```
+
+Prefer to run it by hand, or just curious what's lying around right now?
+
+```bash
+shoo                              # list leftovers (changes nothing)
+shoo clean                        # clean them up (asks first)
+```
+
+## Why it's safe to leave unattended
+
+Nobody is watching a background job, so the timer is deliberately more cautious than running shoo
+by hand. Before it removes anything, a process must be:
+
+- **an orphan:** the session that started it is gone, and it isn't attached to a terminal;
+- **a known agent or dev tool,** not a database, a service or one of your own programs;
+- **old:** running for at least 6 hours, and
+- **idle:** shoo has watched the whole tree stay quiet for at least 2 hours, across runs.
+
+Anything that something is connected to (a browser tab, an SSH tunnel) is left alone. It never
+touches systemd services, containers, `tmux`, or another user's processes. Every run is logged,
+and `shoo schedule disable` removes the timer. The full rules are in the next section.
 
 ## How it decides
 
